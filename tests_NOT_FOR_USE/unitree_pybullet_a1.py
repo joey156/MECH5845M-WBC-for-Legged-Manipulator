@@ -6,11 +6,10 @@ p.connect(p.GUI)
 plane = p.loadURDF("plane.urdf")
 p.setGravity(0,0,-9.8)
 p.setTimeStep(1./500)
-urdfFlags = p.URDF_USE_SELF_COLLISION #| p.URDF_USE_SELF_COLLISION_EXCLUDE_ALL_PARENTS
-
-quadruped = p.loadURDF("/home/joey156/Disso_ws/MECH5845M-WBC-for-Legged-Manipulator/Robot_Descriptions/urdf/a1_px100_pin_ver.urdf",[0,0,0.4],[0,0,0,1], flags=urdfFlags,useFixedBase=False)
-
-
+#p.setDefaultContactERP(0)
+#urdfFlags = p.URDF_USE_SELF_COLLISION+p.URDF_USE_SELF_COLLISION_EXCLUDE_ALL_PARENTS
+urdfFlags = p.URDF_USE_SELF_COLLISION
+quadruped = p.loadURDF("/home/joey156/Disso_ws/unitree_pybullet/data/a1/urdf/a1.urdf",[0,0,0.48],[0,0,0,1], flags = urdfFlags,useFixedBase=False)
 
 #enable collision between lower legs
 for j in range (p.getNumJoints(quadruped)):
@@ -23,15 +22,11 @@ for l0 in lower_legs:
             enableCollision = 1
             print("collision for pair",l0,l1, p.getJointInfo(quadruped,l0)[12],p.getJointInfo(quadruped,l1)[12], "enabled=",enableCollision)
             p.setCollisionFilterPair(quadruped, quadruped, 2,5,enableCollision)
-p.setCollisionFilterPair(quadruped, quadruped, 27, 28, 0)
-p.setCollisionFilterPair(quadruped, quadruped, 25, 27, 0)
-p.setCollisionFilterPair(quadruped, quadruped, 25, 28, 0)
-
 
 jointIds=[]
 paramIds=[]
 
-maxForceId = p.addUserDebugParameter("maxForce",0,100,50)
+maxForceId = p.addUserDebugParameter("maxForce",0,100,20)
 
 for j in range (p.getNumJoints(quadruped)):
     p.changeDynamics(quadruped,j,linearDamping=0, angularDamping=0)
@@ -42,7 +37,7 @@ for j in range (p.getNumJoints(quadruped)):
     if (jointType==p.JOINT_PRISMATIC or jointType==p.JOINT_REVOLUTE):
         jointIds.append(j)
 
-print(jointIds)
+# print(jointIds)
 
 p.getCameraImage(480,320)
 p.setRealTimeSimulation(0)
@@ -50,17 +45,16 @@ p.setRealTimeSimulation(0)
 joints=[]
 
 while(1):
-    with open("test1.txt","r") as filestream:
+    with open("mocap.txt","r") as filestream:
         for line in filestream:
             maxForce = p.readUserDebugParameter(maxForceId)
             currentline = line.split(",")
             frame = currentline[0]
             t = currentline[1]
-            joints=currentline[2:]
-            for j in range (len(joints)):
+            joints=currentline[2:14]
+            for j in range (12):
                 targetPos = float(joints[j])
                 p.setJointMotorControl2(quadruped, jointIds[j], p.POSITION_CONTROL, targetPos, force=maxForce)
-                #print("ID: " + str(jointIds[j]) + " target: " + str(targetPos))
 
             p.stepSimulation()
             for lower_leg in lower_legs:
@@ -70,7 +64,6 @@ while(1):
                 #for pt in pts:
                 #    print(pt[9])
             time.sleep(1./500.)
-
 
 
 # for j in range (p.getNumJoints(quadruped)):
@@ -92,6 +85,3 @@ while(1):
 #         targetPos = p.readUserDebugParameter(c)
 #         maxForce = p.readUserDebugParameter(maxForceId)
 #         p.setJointMotorControl2(quadruped,jointIds[i],p.POSITION_CONTROL,jointDirections[i]*targetPos+jointOffsets[i], force=maxForce)
-
-# Cleanup
-p.disconnect()
