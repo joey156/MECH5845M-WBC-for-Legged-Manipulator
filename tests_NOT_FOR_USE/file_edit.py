@@ -1,4 +1,4 @@
-file_name = "mocap_with_arm.txt"
+file_name = "mocap_wx200.txt"
 
 new_lines = []
 
@@ -9,7 +9,7 @@ with open(file_name, "r") as filestream:
 
 for i in range(len(new_lines)):
     new_lines[i] = new_lines[i][:-1]
-    new_lines[i] = new_lines[i] + ", 0, 0, 0, 0, 0, 0.02, -0.02\n"
+    new_lines[i] = new_lines[i] + ", 0, 0, 0, 0, 0, 0, 0.02, -0.02\n"
 
 print(new_lines[:4])
 print(len(new_lines))
