@@ -18,8 +18,11 @@ class RobotModel:
         self.current_joint_config = pin.neutral(self.robot_model)
         self.neutralConfig()
         self.comJacobian()
+        self.cartisian_targetsEE = 0
         
         self.sampling_time = 0.001 #in seconds (1ms)
+        self.end_effector_index_list_v = [8, 11, 14, 17, 23]
+        self.end_effecotr_index_list_oMi = [4, 7, 10, 13, 19]
 
     def updateState(self, joint_config):
         #update robot configuration
@@ -37,10 +40,10 @@ class RobotModel:
         if updateModel == False:
             return new_config
 
-    def EndEffectorJacobians(self, end_effector_index_list): # This works with the current model configuration
-        self.end_effector_jacobians = np.transpose(pin.getJointJacobian(self.robot_model, self.robot_data, end_effector_index_list[0], pin.WORLD))
-        for i in range(len(end_effector_index_list)-1):
-            J = np.transpose(pin.getJointJacobian(self.robot_model, self.robot_data, end_effector_index_list[i+1], pin.WORLD))
+    def EndEffectorJacobians(self): # This works with the current model configuration
+        self.end_effector_jacobians = np.transpose(pin.getJointJacobian(self.robot_model, self.robot_data, self.end_effector_index_list_v[0], pin.WORLD))
+        for i in range(len(self.end_effector_index_list_v)-1):
+            J = np.transpose(pin.getJointJacobian(self.robot_model, self.robot_data, self.end_effector_index_list_v[i+1], pin.WORLD))
             self.end_effector_jacobians = np.concatenate((self.end_effector_jacobians, J), axis = 1)
         self.end_effector_jacobians = np.transpose(self.end_effector_jacobians)
         W = np.identity(30) # Later this can be used to weight each of the cartisian tasks
@@ -75,6 +78,20 @@ class RobotModel:
     def qpCartisianA(self):
         A = np.concatenate((self.end_effector_jacobians, self.comJ), axis=0)
         return A
+
+    def cartisianTargetsEE(self, target_cartisian_pos, target_cartisian_vel):
+        K_cart = np.identity(26)
+        target_list = []
+        if np.sum(target_cartisian_pos) == 0 and np.sum(target_cartisian_vel) == 0:
+            self.cartisian_targetsEE = np.zeros((30,1))
+        else:
+            for i in range(len(self.end_effector_index_list)):
+                if target_cartisian_pos[i] == 0 and target_cartisian_vel[i] == 0:
+                    target_list[i] = np.zeros((6,1))
+                else:
+                    x = target_cartisian_pos[i] - self.robot_data.oMi[self.end_effector_index_list_oMi[i]].translation
+                    target_list[i] = target_cartisian_vel[i] + np.dot(K_cart, x)
+
 
 
 
