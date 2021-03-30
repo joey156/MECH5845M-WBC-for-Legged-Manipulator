@@ -1,5 +1,7 @@
 import pinocchio as pin
 import numpy as np
+#from scipy.spatial.transform import Rotation as R
+import math
 
 large_width = 400
 np.set_printoptions(linewidth=large_width)
@@ -48,7 +50,7 @@ class RobotModel:
         self.end_effector_jacobians = np.transpose(self.end_effector_jacobians)
         W = np.identity(30) # Later this can be used to weight each of the cartisian tasks
         self.end_effector_jacobians = np.dot(W, self.end_effector_jacobians)
-        print(self.end_effector_jacobians)
+        #print(self.end_effector_jacobians)
             
     def jointVelLimitsArray(self): # returns an array for the upper and lower joint velocity limits which will be used for QP
         vel_lim = self.robot_model.velocityLimit
@@ -79,20 +81,28 @@ class RobotModel:
         A = np.concatenate((self.end_effector_jacobians, self.comJ), axis=0)
         return A
 
-    def cartisianTargetsEE(self, target_cartisian_pos, target_cartisian_vel):
+    def cartesianTargetsEE(self, target_cartesian_pos, target_cartesian_vel):
         K_cart = np.identity(26)
         target_list = []
-        if np.sum(target_cartisian_pos) == 0 and np.sum(target_cartisian_vel) == 0:
-            self.cartisian_targetsEE = np.zeros((30,1))
+        if np.sum(target_cartesian_pos) == 0 and np.sum(target_cartesian_vel) == 0:
+            self.cartesian_targetsEE = np.zeros((30,1))
         else:
             for i in range(len(self.end_effector_index_list)):
-                if target_cartisian_pos[i] == 0 and target_cartisian_vel[i] == 0:
+                if target_cartesian_pos[i] == 0 and target_cartesian_vel[i] == 0:
                     target_list[i] = np.zeros((6,1))
                 else:
-                    x = target_cartisian_pos[i] - self.robot_data.oMi[self.end_effector_index_list_oMi[i]].translation
-                    target_list[i] = target_cartisian_vel[i] + np.dot(K_cart, x)
+                    rot = LeggedRobot.robot_data.oMi[self.end_effector_inde_list_oMi[i]].rotation
+                    rot = self.Rot2Euler(rot)
+                    #rot = np.array(rot)
+                    #rot = R.from_matrix(rot)
+                    #rot = np.array([x.as_euler("xyz")]).T
+                    x = target_cartesian_pos[i] - self.robot_data.oMi[self.end_effector_index_list_oMi[i]].translation
+                    target_list[i] = np.concatenate(((target_cartesian_vel[i] + np.dot(K_cart, x)), rot), axis=0)
+            self.cartesian_targetsEE = target_list[0]
+            for i in range(len(target_list)-1):
+                self.cartesian_targetsEE = np.concatenate((self.cartesian_targetsEE,target_list[i+1]), axis=0)
 
-
+    
 
 
     #Debugging functions
@@ -105,7 +115,7 @@ class RobotModel:
     def neutralConfig(self):
         q = pin.neutral(self.robot_model)
         self.updateState(q)
-        self.printJointCart()
+        #self.printJointCart()
 
     def printJ(self, joint_index=None):
         if (joint_index != None):
@@ -120,5 +130,12 @@ class RobotModel:
     def printCoMJ(self):
         print(pin.jacobianCenterOfMass(self.robot_model, self.robot_data, self.current_joint_config))
         
-    
+
+
+    #Helper functions
+    def Rot2Euler(self, Rot):
+        roll = math.atan2(Rot[2,1],Rot[2,2])
+        pitch = math.atan2(-Rot[2,0],math.sqrt(math.pow(Rot[2,1],2)+math.pow(Rot[2,2],2)))
+        yaw = math.atan2(Rot[1,0],Rot[0,0])
+        return np.array([[roll,pitch,yaw]]).T
     

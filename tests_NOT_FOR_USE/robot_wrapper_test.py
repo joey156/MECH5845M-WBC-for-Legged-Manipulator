@@ -2,6 +2,7 @@ import sys
 sys.path.append("../wrappers/")
 from Robot_Wrapper import RobotModel
 from scipy.spatial.transform import Rotation as R
+import numpy as np
 
 
 urdf = "/home/joey156/Disso_ws/MECH5845M-WBC-for-Legged-Manipulator/Robot_Descriptions/urdf/a1_wx200.urdf"
@@ -10,8 +11,7 @@ LeggedRobot = RobotModel(urdf)
 
 LeggedRobot.neutralConfig()
 
-LeggedRobot.printJ()
-
+#LeggedRobot.printJ()
 #LeggedRobot.printJ(0)
 #LeggedRobot.printJ(1)
 #LeggedRobot.printJ(2)
@@ -38,15 +38,21 @@ LeggedRobot.printJ()
 #LeggedRobot.printJ(23)
 #LeggedRobot.printJ(24)
 #LeggedRobot.printJ(25)
-
-LeggedRobot.printJointJ(4)
-LeggedRobot.printCoMJ()
+#LeggedRobot.printJointJ(4)
+#LeggedRobot.printCoMJ()
 
 
 LeggedRobot.EndEffectorJacobians()
 lower_pos_lim, upper_pos_lim = LeggedRobot.jointPosLimitsArray()
 lower_vel_lim, upper_vel_lim = LeggedRobot.jointVelLimitsArray()
-print(lower_pos_lim)
-print("\n", lower_pos_lim.shape)
-x = R.from_matrix(LeggedRobot.robot_data.oMi[19].rotation)
-print(x.as_euler("xyz", ))
+#print(lower_pos_lim)
+#print("\n", lower_pos_lim.shape)
+x = LeggedRobot.robot_data.oMi[19].rotation
+#x = np.array(x)
+print(x)
+#x = R.from_matrix(x)
+#x = np.array([x.as_euler("xyz")]).T
+x = LeggedRobot.Rot2Euler(x)
+print(x)
+print(LeggedRobot.robot_data.oMi[19].translation.shape)
+
