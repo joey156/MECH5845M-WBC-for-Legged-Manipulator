@@ -16,6 +16,8 @@ class RobotModel:
         #set robot to a neutral stance and initalise parameters
         self.current_joint_config = pin.neutral(self.robot_model)
         self.neutralConfig()
+        
+        self.sampling_time = 0.001 #in seconds (1ms)
 
     def updateState(self, joint_config):
         #update robot configuration
@@ -35,8 +37,6 @@ class RobotModel:
 
     def EndEffectorJacobians(self, end_effector_index_list): # This works with the current model configuration
         self.end_effector_jacobians = np.transpose(pin.getJointJacobian(self.robot_model, self.robot_data, end_effector_index_list[0], pin.WORLD))
-        #J = np.transpose(pin.getJointJacobian(self.robot_model, self.robot_data, end_effector_index_list[1], pin.WORLD))
-        #self.end_effector_jacobians = np.concatenate((self.end_effector_jacobians, J), axis = 1)
         for i in range(len(end_effector_index_list)-1):
             J = np.transpose(pin.getJointJacobian(self.robot_model, self.robot_data, end_effector_index_list[i+1], pin.WORLD))
             self.end_effector_jacobians = np.concatenate((self.end_effector_jacobians, J), axis = 1)
@@ -45,6 +45,27 @@ class RobotModel:
         print(self.end_effector_jacobians)
         print(W)
             
+    def jointVelLimitsArray(self): # returns an array for the upper and lower joint velocity limits which will be used for QP
+        vel_lim = self.robot_model.velocityLimit
+        lower_vel_lim = -vel_lim[np.newaxis]
+        upper_vel_lim = vel_lim[np.newaxis]
+        return lower_vel_lim, upper_vel_lim
+
+    def jointPosLimitsArray(self): # returns an array for the upper and lower joint position limits, these have been turned into velocity limits
+        for i in range(len(self.robot_model.lowerPositionLimit)):
+            if np.isinf(self.robot_model.lowerPositionLimit[i]):
+                self.robot_model.lowerPositionLimit[i] = 0
+        lower_pos_lim = np.transpose(self.robot_model.lowerPositionLimit[np.newaxis])
+        upper_pos_lim = self.robot_model.upperPositionLimit
+
+        K_lim = np.identity(27)*0.5
+        lower_pos_lim = np.dot(K_lim,(lower_pos_lim - np.transpose(self.current_joint_config[np.newaxis])))*(1/self.sampling_time)
+        upper_pos_lim = np.dot(K_lim,(upper_pos_lim - np.transpose(self.current_joint_config[np.newaxis])))*(1/self.sampling_time)
+
+        lower_pos_lim = np.delete(lower_pos_lim, 0, 0)
+        upper_pos_lim = np.delete(upper_pos_lim, 0, 0)
+        
+        return lower_pos_lim, upper_pos_lim
 
 
 

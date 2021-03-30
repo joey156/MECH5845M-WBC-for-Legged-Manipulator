@@ -41,7 +41,9 @@ LeggedRobot.printJ(25)
 LeggedRobot.printJointJ(4)
 #LeggedRobot.printCoMJ()
 
+
 LeggedRobot.EndEffectorJacobians([4, 7, 10, 13, 19])
-
-print(LeggedRobot.robot_model.velocityLimit)
-
+lower_pos_lim, upper_pos_lim = LeggedRobot.jointPosLimitsArray()
+lower_vel_lim, upper_vel_lim = LeggedRobot.jointVelLimitsArray()
+print(lower_pos_lim)
+print("\n", lower_pos_lim.shape)
