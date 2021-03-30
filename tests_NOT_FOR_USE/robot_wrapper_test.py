@@ -39,7 +39,7 @@ LeggedRobot.printJ(24)
 LeggedRobot.printJ(25)
 
 LeggedRobot.printJointJ(4)
-#LeggedRobot.printCoMJ()
+LeggedRobot.printCoMJ()
 
 
 LeggedRobot.EndEffectorJacobians([4, 7, 10, 13, 19])
@@ -47,3 +47,5 @@ lower_pos_lim, upper_pos_lim = LeggedRobot.jointPosLimitsArray()
 lower_vel_lim, upper_vel_lim = LeggedRobot.jointVelLimitsArray()
 print(lower_pos_lim)
 print("\n", lower_pos_lim.shape)
+
+print(LeggedRobot.qpCartisianA())

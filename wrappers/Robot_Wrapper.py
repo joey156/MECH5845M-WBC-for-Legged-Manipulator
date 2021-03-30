@@ -4,6 +4,7 @@ import numpy as np
 large_width = 400
 np.set_printoptions(linewidth=large_width)
 np.set_printoptions(precision=3)
+np.set_printoptions(suppress=True)
 
 class RobotModel:
     def __init__(self, urdf_path):
@@ -16,6 +17,7 @@ class RobotModel:
         #set robot to a neutral stance and initalise parameters
         self.current_joint_config = pin.neutral(self.robot_model)
         self.neutralConfig()
+        self.comJacobian()
         
         self.sampling_time = 0.001 #in seconds (1ms)
 
@@ -41,9 +43,9 @@ class RobotModel:
             J = np.transpose(pin.getJointJacobian(self.robot_model, self.robot_data, end_effector_index_list[i+1], pin.WORLD))
             self.end_effector_jacobians = np.concatenate((self.end_effector_jacobians, J), axis = 1)
         self.end_effector_jacobians = np.transpose(self.end_effector_jacobians)
-        W = np.identity(30)
+        W = np.identity(30) # Later this can be used to weight each of the cartisian tasks
+        self.end_effector_jacobians = np.dot(W, self.end_effector_jacobians)
         print(self.end_effector_jacobians)
-        print(W)
             
     def jointVelLimitsArray(self): # returns an array for the upper and lower joint velocity limits which will be used for QP
         vel_lim = self.robot_model.velocityLimit
@@ -67,6 +69,12 @@ class RobotModel:
         
         return lower_pos_lim, upper_pos_lim
 
+    def comJacobian(self):
+        self.comJ = pin.jacobianCenterOfMass(self.robot_model, self.robot_data, self.current_joint_config)
+
+    def qpCartisianA(self):
+        A = np.concatenate((self.end_effector_jacobians, self.comJ), axis=0)
+        return A
 
 
 
