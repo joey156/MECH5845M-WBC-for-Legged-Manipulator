@@ -105,7 +105,6 @@ class RobotModel:
                     x = np.concatenate((x,rot),axis=0)
                     target_list[i] = target_cartesian_vel[i] + np.dot(K_cart, x)
             self.cartesian_targetsEE = target_list[0]
-            print(self.cartesian_targetsEE)
             for i in range(len(target_list)-1):
                 self.cartesian_targetsEE = np.concatenate((self.cartesian_targetsEE,target_list[i+1]), axis=0)
 
@@ -114,8 +113,24 @@ class RobotModel:
         if np.sum(target_cartesian_pos) == 0 and np.sum(target_cartesian_vel) == 0:
             self.cartesian_targetsCoM = np.zeros((3,1))
         else:
-            self.cartesian_targetsCoM = target_cartesian_vel + np.dot(K_cart, (target_cartesian_pos-self.robot_data.com[0]))
+            self.cartesian_targetsCoM = target_cartesian_vel + np.dot(K_cart, (target_cartesian_pos-np.array([self.robot_data.com[0]]).T))
 
+    def posAndVelTargetsCoM(self, objective):
+        err = objective - np.array([self.robot_data.com[0]]).T
+        step = err/(5000)
+        base = np.array([self.robot_data.com[0]]).T
+        planner_pos = [0]*5000
+        planner_pos[0] = base
+        for i in range(len(planner_pos)-1):
+            planner_pos[i+1] = planner_pos[i] + step
+        
+        planner_vel = [0]*5000
+        for i in range(len(planner_vel)):
+            planner_vel[i] = step/self.sampling_time
+        
+        return planner_pos, planner_vel
+        
+        
 
     #Debugging functions
     def printJointCart(self):

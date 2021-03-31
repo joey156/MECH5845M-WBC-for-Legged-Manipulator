@@ -22,8 +22,8 @@ x = np.array(x)
 print(x)
 
 x = LeggedRobot.Rot2Euler(x)
-com_target_pos = [1, 1, 1]
-com_target_vel = [1, 1, 1]
+com_target_pos = np.array([[1, 1, 1]]).T
+com_target_vel = np.array([[1, 1, 1]]).T
 EE_pos = np.array([[1,1,1]]).T
 EE_vel = np.array([[1,1,1,1,1,1]]).T
 print(EE_pos)
@@ -32,7 +32,8 @@ EE_target_vel = [EE_vel, EE_vel, EE_vel, EE_vel, EE_vel]
 LeggedRobot.cartesianTargetsEE(EE_target_pos, EE_target_vel)
 print(LeggedRobot.cartesian_targetsEE)
 LeggedRobot.cartesianTargetCoM(com_target_pos, com_target_vel)
-print(LeggedRobot.cartesian_targetsCoM.shape)
+print(LeggedRobot.cartesian_targetsCoM)
 print("success")
 print(LeggedRobot.robot_data.oMi[19].translation.shape)
-
+planner_pos, planner_vel = LeggedRobot.posAndVelTargetsCoM(com_target_pos)
+print(planner_vel[0])
