@@ -3,10 +3,10 @@ import numpy as np
 #from scipy.spatial.transform import Rotation as R
 import math
 
-large_width = 400
-np.set_printoptions(linewidth=large_width)
-np.set_printoptions(precision=3)
-np.set_printoptions(suppress=True)
+#large_width = 400
+#np.set_printoptions(linewidth=large_width)
+#np.set_printoptions(precision=3)
+#np.set_printoptions(suppress=True)
 
 class RobotModel:
     def __init__(self, urdf_path):
@@ -20,7 +20,9 @@ class RobotModel:
         self.current_joint_config = pin.neutral(self.robot_model)
         self.neutralConfig()
         self.comJacobian()
-        self.cartisian_targetsEE = 0
+        self.cartesian_targetsEE = 0
+        self.cartesian_targetsCoM = 0
+        self.end_effector_jacobians = 0
         
         self.sampling_time = 0.001 #in seconds (1ms)
         self.end_effector_index_list_v = [8, 11, 14, 17, 23]
@@ -43,13 +45,14 @@ class RobotModel:
             return new_config
 
     def EndEffectorJacobians(self): # This works with the current model configuration
-        self.end_effector_jacobians = np.transpose(pin.getJointJacobian(self.robot_model, self.robot_data, self.end_effector_index_list_v[0], pin.WORLD))
+        E_J = np.transpose(pin.getJointJacobian(self.robot_model, self.robot_data, self.end_effector_index_list_v[0], pin.WORLD))
         for i in range(len(self.end_effector_index_list_v)-1):
             J = np.transpose(pin.getJointJacobian(self.robot_model, self.robot_data, self.end_effector_index_list_v[i+1], pin.WORLD))
-            self.end_effector_jacobians = np.concatenate((self.end_effector_jacobians, J), axis = 1)
-        self.end_effector_jacobians = np.transpose(self.end_effector_jacobians)
+            E_J = np.concatenate((E_J, J), axis = 1)
+        E_J = np.transpose(E_J)
         W = np.identity(30) # Later this can be used to weight each of the cartisian tasks
-        self.end_effector_jacobians = np.dot(W, self.end_effector_jacobians)
+        E_J = np.dot(W, E_J)
+        return E_J
         #print(self.end_effector_jacobians)
             
     def jointVelLimitsArray(self): # returns an array for the upper and lower joint velocity limits which will be used for QP
@@ -102,7 +105,12 @@ class RobotModel:
             for i in range(len(target_list)-1):
                 self.cartesian_targetsEE = np.concatenate((self.cartesian_targetsEE,target_list[i+1]), axis=0)
 
-    
+    def cartesianTargetCoM(self, target_cartesian_pos, target_cartesian_vel):
+        K_cart = np.identity(3)
+        if np.sum(target_cartesian_pos) == 0 and np.sum(target_cartesian_vel) == 0:
+            self.cartesian_targetsCoM = np.zeros((3,1))
+        else:
+            self.cartesian_targetsCoM = target_cartesian_vel + np.dot(K_cart, (target_cartesian_pos-self.robot_data.com[0]))
 
 
     #Debugging functions
@@ -138,4 +146,14 @@ class RobotModel:
         pitch = math.atan2(-Rot[2,0],math.sqrt(math.pow(Rot[2,1],2)+math.pow(Rot[2,2],2)))
         yaw = math.atan2(Rot[1,0],Rot[0,0])
         return np.array([[roll,pitch,yaw]]).T
-    
+
+
+#urdf = "/home/joey156/Disso_ws/MECH5845M-WBC-for-Legged-Manipulator/Robot_Descriptions/urdf/a1_wx200.urdf"
+
+#LeggedRobot = RobotModel(urdf)
+
+#LeggedRobot.neutralConfig()
+
+#LeggedRobot.EndEffectorJacobians()
+
+#LeggedRobot.printJointCart()
