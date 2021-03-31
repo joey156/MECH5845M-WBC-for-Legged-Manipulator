@@ -67,9 +67,11 @@ class RobotModel:
         for i in range(len(self.robot_model.lowerPositionLimit)):
             if np.isinf(self.robot_model.lowerPositionLimit[i]):
                 self.robot_model.lowerPositionLimit[i] = 0
+        for i in range(len(self.robot_model.upperPositionLimit)):
+            if np.isinf(self.robot_model.upperPositionLimit[i]):
+                self.robot_model.upperPositionLimit[i] = 0
         lower_pos_lim = np.transpose(self.robot_model.lowerPositionLimit[np.newaxis])
-        upper_pos_lim = self.robot_model.upperPositionLimit
-
+        upper_pos_lim = np.transpose(self.robot_model.upperPositionLimit[np.newaxis])
         K_lim = np.identity(27)*0.5
         lower_pos_lim = np.dot(K_lim,(lower_pos_lim - np.transpose(self.current_joint_config[np.newaxis])))*(1/self.sampling_time)
         upper_pos_lim = np.dot(K_lim,(upper_pos_lim - np.transpose(self.current_joint_config[np.newaxis])))*(1/self.sampling_time)
@@ -80,9 +82,11 @@ class RobotModel:
         return lower_pos_lim, upper_pos_lim
 
     def comJacobian(self):
-        self.comJ = pin.jacobianCenterOfMass(self.robot_model, self.robot_data, self.current_joint_config)
+        J = pin.jacobianCenterOfMass(self.robot_model, self.robot_data, self.current_joint_config)
+        self.comJ = J
+        return J
 
-    def qpCartisianA(self):
+    def qpCartesianA(self):
         A = np.concatenate((self.end_effector_jacobians, self.comJ), axis=0)
         return A
 
@@ -130,7 +134,10 @@ class RobotModel:
         
         return planner_pos, planner_vel
         
-        
+    def qpCartesianB(self, target_cartesian_pos, target_cartesian_vel):
+        self.cartesianTargetCoM(target_cartesian_pos, target_cartesian_vel)
+        b = self.cartesian_targetsCoM
+        return b
 
     #Debugging functions
     def printJointCart(self):
