@@ -28,7 +28,7 @@ class RobotModel:
         
         self.sampling_time = 0.001 #in seconds (1ms)
         self.end_effector_index_list_v = [11, 19, 27, 35, 53]
-        self.end_effector_index_list_oMi = [4, 7, 10, 13, 19]
+        
 
     def updateState(self, joint_config):
         #update robot configuration
@@ -39,16 +39,6 @@ class RobotModel:
         self.J = pin.computeJointJacobians(self.robot_model, self.robot_data)
         
         pin.framesForwardKinematics(self.robot_model, self.robot_data, joint_config)
-        print(pin.getFrameJacobian(self.robot_model, self.robot_data, 11, pin.WORLD))
-        print("\n\n")
-        print(pin.getFrameJacobian(self.robot_model, self.robot_data, 19, pin.WORLD))
-        print("\n\n")
-        print(pin.getFrameJacobian(self.robot_model, self.robot_data, 27, pin.WORLD))
-        print("\n\n")
-        print(pin.getFrameJacobian(self.robot_model, self.robot_data, 35, pin.WORLD))
-        print("\n\n")
-        print(pin.getFrameJacobian(self.robot_model, self.robot_data, 53, pin.WORLD))
-        print("\n\n")
         self.oMi = self.robot_data.oMi
         
     def jointVelocitiestoConfig(self, joint_vel, updateModel=False):
@@ -67,7 +57,7 @@ class RobotModel:
         W = np.identity(30) # Later this can be used to weight each of the cartisian tasks
         self.end_effector_jacobians = np.dot(W, self.end_effector_jacobians)
         
-        print(self.end_effector_jacobians)
+        #print(self.end_effector_jacobians)
             
     def jointVelLimitsArray(self): # returns an array for the upper and lower joint velocity limits which will be used for QP
         vel_lim = self.robot_model.velocityLimit
@@ -102,6 +92,8 @@ class RobotModel:
         return J
 
     def qpCartesianA(self):
+        self.comJacobian()
+        self.EndEffectorJacobians()
         A = np.concatenate((self.end_effector_jacobians, self.comJ), axis=0)
         return A
 
@@ -115,10 +107,10 @@ class RobotModel:
                 if np.sum(target_cartesian_pos[i]) == 0 and np.sum(target_cartesian_vel[i]) == 0:
                     target_list[i] = np.zeros((6,1))
                 else:
-                    rot = self.robot_data.oMi[self.end_effector_index_list_oMi[i]].rotation
+                    rot = self.robot_data.oMf[self.end_effector_index_list_v[i]].rotation
                     rot = self.Rot2Euler(rot)
                     #print(rot)
-                    x = target_cartesian_pos[i] - np.array([self.robot_data.oMi[self.end_effector_index_list_oMi[i]].translation]).T
+                    x = target_cartesian_pos[i] - np.array([self.robot_data.oMf[self.end_effector_index_list_v[i]].translation]).T
                     x = np.concatenate((x,rot),axis=0)
                     target_list[i] = target_cartesian_vel[i] + np.dot(K_cart, x)
             self.cartesian_targetsEE = target_list[0]
@@ -147,9 +139,10 @@ class RobotModel:
         
         return planner_pos, planner_vel
         
-    def qpCartesianB(self, target_cartesian_pos, target_cartesian_vel):
-        self.cartesianTargetCoM(target_cartesian_pos, target_cartesian_vel)
-        b = self.cartesian_targetsCoM
+    def qpCartesianB(self, target_cartesian_pos_CoM, target_cartesian_vel_CoM, target_cartesian_pos_EE, target_cartesian_vel_EE):
+        self.cartesianTargetCoM(target_cartesian_pos_CoM, target_cartesian_vel_CoM)
+        self.cartesianTargetsEE(target_cartesian_pos_EE, target_cartesian_vel_EE)
+        b = np.concatenate((self.cartesian_targetsEE ,self.cartesian_targetsCoM), axis=0)
         return b
 
     #Debugging functions
