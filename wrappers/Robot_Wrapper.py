@@ -17,15 +17,17 @@ class RobotModel:
         self.no_DoF = self.robot_model.nv
         self.no_config = self.robot_model.nq
         #set robot to a neutral stance and initalise parameters
+        self.stand_joint_config = np.array([0,0,0,0,0,0,1,0.037199,0.660252,-1.200187,-0.028954,0.618814,-1.183148,0.048225,0.690008,-1.254787,-0.050525,0.661355,-1.243304, 0, 0, 0, 0, 0, 0, 0.02, -0.02])
         self.current_joint_config = pin.neutral(self.robot_model)
-        self.neutralConfig()
+        #self.neutralConfig()
+        self.updateState(self.stand_joint_config)
         self.comJacobian()
         self.cartesian_targetsEE = 0
         self.cartesian_targetsCoM = 0
         self.end_effector_jacobians = 0
         
         self.sampling_time = 0.001 #in seconds (1ms)
-        self.end_effector_index_list_v = [8, 11, 14, 17, 23]
+        self.end_effector_index_list_v = [11, 19, 27, 35, 53]
         self.end_effector_index_list_oMi = [4, 7, 10, 13, 19]
 
     def updateState(self, joint_config):
@@ -35,6 +37,18 @@ class RobotModel:
         self.previouse_joint_config = self.current_joint_config
         self.current_joint_config = joint_config
         self.J = pin.computeJointJacobians(self.robot_model, self.robot_data)
+        
+        pin.framesForwardKinematics(self.robot_model, self.robot_data, joint_config)
+        print(pin.getFrameJacobian(self.robot_model, self.robot_data, 11, pin.WORLD))
+        print("\n\n")
+        print(pin.getFrameJacobian(self.robot_model, self.robot_data, 19, pin.WORLD))
+        print("\n\n")
+        print(pin.getFrameJacobian(self.robot_model, self.robot_data, 27, pin.WORLD))
+        print("\n\n")
+        print(pin.getFrameJacobian(self.robot_model, self.robot_data, 35, pin.WORLD))
+        print("\n\n")
+        print(pin.getFrameJacobian(self.robot_model, self.robot_data, 53, pin.WORLD))
+        print("\n\n")
         self.oMi = self.robot_data.oMi
         
     def jointVelocitiestoConfig(self, joint_vel, updateModel=False):
@@ -45,12 +59,10 @@ class RobotModel:
             return new_config
 
     def EndEffectorJacobians(self): # This works with the current model configuration
-        self.end_effector_jacobians = np.transpose(pin.getJointJacobian(self.robot_model, self.robot_data, self.end_effector_index_list_v[0], pin.WORLD))
+        self.end_effector_jacobians = np.transpose(pin.getFrameJacobian(self.robot_model, self.robot_data, self.end_effector_index_list_v[0], pin.WORLD))
         for i in range(len(self.end_effector_index_list_v)-1):
-            y = 1
-            J = np.transpose(pin.getJointJacobian(self.robot_model, self.robot_data, self.end_effector_index_list_v[y], pin.WORLD))
+            J = np.transpose(pin.getFrameJacobian(self.robot_model, self.robot_data, self.end_effector_index_list_v[i+1], pin.WORLD))
             self.end_effector_jacobians = np.concatenate((self.end_effector_jacobians, J), axis = 1)
-            y = y+1
         self.end_effector_jacobians = np.transpose(self.end_effector_jacobians)
         W = np.identity(30) # Later this can be used to weight each of the cartisian tasks
         self.end_effector_jacobians = np.dot(W, self.end_effector_jacobians)
@@ -59,6 +71,9 @@ class RobotModel:
             
     def jointVelLimitsArray(self): # returns an array for the upper and lower joint velocity limits which will be used for QP
         vel_lim = self.robot_model.velocityLimit
+        for i in range(len(vel_lim)):
+            if np.isinf(vel_lim[i]):
+                vel_lim[i] = 10
         lower_vel_lim = -vel_lim[np.newaxis]
         upper_vel_lim = vel_lim[np.newaxis]
         return lower_vel_lim, upper_vel_lim
@@ -66,10 +81,10 @@ class RobotModel:
     def jointPosLimitsArray(self): # returns an array for the upper and lower joint position limits, these have been turned into velocity limits
         for i in range(len(self.robot_model.lowerPositionLimit)):
             if np.isinf(self.robot_model.lowerPositionLimit[i]):
-                self.robot_model.lowerPositionLimit[i] = 0
+                self.robot_model.lowerPositionLimit[i] = 10
         for i in range(len(self.robot_model.upperPositionLimit)):
             if np.isinf(self.robot_model.upperPositionLimit[i]):
-                self.robot_model.upperPositionLimit[i] = 0
+                self.robot_model.upperPositionLimit[i] = 10
         lower_pos_lim = np.transpose(self.robot_model.lowerPositionLimit[np.newaxis])
         upper_pos_lim = np.transpose(self.robot_model.upperPositionLimit[np.newaxis])
         K_lim = np.identity(27)*0.5
@@ -102,9 +117,7 @@ class RobotModel:
                 else:
                     rot = self.robot_data.oMi[self.end_effector_index_list_oMi[i]].rotation
                     rot = self.Rot2Euler(rot)
-                    #rot = np.array(rot)
-                    #rot = R.from_matrix(rot)
-                    #rot = np.array([x.as_euler("xyz")]).T
+                    #print(rot)
                     x = target_cartesian_pos[i] - np.array([self.robot_data.oMi[self.end_effector_index_list_oMi[i]].translation]).T
                     x = np.concatenate((x,rot),axis=0)
                     target_list[i] = target_cartesian_vel[i] + np.dot(K_cart, x)
