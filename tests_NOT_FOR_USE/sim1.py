@@ -54,7 +54,7 @@ p.setRealTimeSimulation(0)
 
 # Main while loop
 while (1):
-    with open("mocap_wx200.txt", "r") as filestream:
+    with open("test1.txt", "r") as filestream:
         for line in filestream:
             maxForce = p.readUserDebugParameter(maxForceId)
             currentline = line.split(",")
@@ -75,9 +75,9 @@ while (1):
             pin.forwardKinematics(LeggedRobot_pin, LeggedRobot_data, joints_pin)
             p.stepSimulation()
             time.sleep(1./500.)
-            print("\n Joint positions: \n")
-            for name, oMi in zip(LeggedRobot_pin.names, LeggedRobot_data.oMi):
-                print(("{:<24} : {: .2f} {: .2f} {: .2f}".format(name, *oMi.translation.T.flat)))
+            #print("\n Joint positions: \n")
+            #for name, oMi in zip(LeggedRobot_pin.names, LeggedRobot_data.oMi):
+                #print(("{:<24} : {: .2f} {: .2f} {: .2f}".format(name, *oMi.translation.T.flat)))
             # Fetch the configuration of the floating base
             joints_pin_base = []
             for i in range(2):
