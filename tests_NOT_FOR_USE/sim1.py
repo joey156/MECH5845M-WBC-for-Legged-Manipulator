@@ -54,7 +54,7 @@ p.setRealTimeSimulation(0)
 
 # Main while loop
 while (1):
-    with open("test1.txt", "r") as filestream:
+    with open("test2.txt", "r") as filestream:
         for line in filestream:
             maxForce = p.readUserDebugParameter(maxForceId)
             currentline = line.split(",")
