@@ -12,9 +12,9 @@ class QP:
         self.lb = lb
         self.ub = ub
         self.H = np.dot(A.T, A)
-        self.g = np.dot(b.T, A)
+        self.g = np.dot(-A.T, b)
         self.no_solutions = 26
-        self.nWSR = np.array([250])
+        self.nWSR = np.array([100000])
 
     def solveQP(self):
         #initialise qp
@@ -22,6 +22,7 @@ class QP:
         
         # set up options
         options = Options()
+        #options.setToMPC()
         options.enableFlippingBounds = BooleanType.FALSE
         options.initialStatusBounds = SubjectToStatus.INACTIVE
         options.numRefinementSteps = 1
