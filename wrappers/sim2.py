@@ -14,7 +14,7 @@ urdfFlags = p.URDF_USE_SELF_COLLISION
 urdf_path = "/home/joey156/Disso_ws/MECH5845M-WBC-for-Legged-Manipulator/Robot_Descriptions/urdf/a1_wx200.urdf"
 
 # load the legged robot urdf
-LeggedRobot_bullet = p.loadURDF(urdf_path,[0,0,0.4],[0,0,0,1], flags=urdfFlags, useFixedBase=False)
+LeggedRobot_bullet = p.loadURDF(urdf_path,[0,0,0.43],[0,0,0,1], flags=urdfFlags, useFixedBase=False)
 
 # Removing the collision pairs between the two gripper fingers and the bar they are attached to
 p.setCollisionFilterPair(LeggedRobot_bullet, LeggedRobot_bullet, 28, 29, 0)
@@ -44,21 +44,19 @@ for j in range(p.getNumJoints(LeggedRobot_bullet)):
             jointIds.append(j)
 
 # Simulation camera settings
-p.getCameraImage(480,320)
+p.getCameraImage(580,320)
 p.setRealTimeSimulation(0)
 
 # setting objectives
-com_target_pos = np.array([[0.004, 0.001, -0.003]]).T #base: 0.004, 0.001, -0.003
+com_target_pos = np.array([LeggedRobot.robot_data.com[0]]).T #base: 0.004, 0.001, -0.003
 
 planner_pos, planner_vel = LeggedRobot.posAndVelTargetsCoM(com_target_pos)
 
-
-
-EE_pos_FL = np.array([[0.163, 0.144, -0.326]]).T
-EE_pos_FR = np.array([[0.174, -0.142, -0.329]]).T
+EE_pos_FL = np.array([[0.174, -0.142, -0.329]]).T
+EE_pos_FR = np.array([[0.163, 0.144, -0.326]]).T
 EE_pos_RL = np.array([[-0.203, 0.148, -0.319]]).T
 EE_pos_RR = np.array([[-0.196, -0.148, -0.32]]).T
-EE_pos_GRIP = np.array([[0.252, 0., 0.207]]).T
+EE_pos_GRIP = np.array([[0.252, 0., 0.207]]).T #base: 0.252 0. 0.207 reach 0.5 0 -0.15
 EE_vel = np.array([[0,0,0,0,0,0]]).T
 EE_target_pos = [EE_pos_FL, EE_pos_FR, EE_pos_RL, EE_pos_RR, EE_pos_GRIP]
 EE_target_vel = [EE_vel, EE_vel, EE_vel, EE_vel, EE_vel]
@@ -67,8 +65,10 @@ EE_target_vel = [EE_vel, EE_vel, EE_vel, EE_vel, EE_vel]
 while (1):
     # Initial configuration
     maxForce = p.readUserDebugParameter(maxForceId)
+    
     joints_py = LeggedRobot.current_joint_config[7:]
     print(joints_py)
+
     for i in range(len(joints_py)):
         p.setJointMotorControl2(LeggedRobot_bullet, jointIds[i], p.POSITION_CONTROL, joints_py[i], force=maxForce)
     p.stepSimulation()
@@ -77,8 +77,9 @@ while (1):
     while (time.time()- t) < 2:
             p.stepSimulation()
             time.sleep(1./500)
-    
+    print("start")
     for i in range(len(planner_pos)):
+        
         maxForce = p.readUserDebugParameter(maxForceId)
 
         # Fetch and combine joint position and velocity limits
@@ -113,10 +114,27 @@ while (1):
 
     while (1):
         print("done")
+        print("CoM:")
         print(LeggedRobot.robot_data.com[0])
+        print("\n")
+        print("FL:")
+        print(LeggedRobot.robot_data.oMf[19].translation)
+        print("\n")
+        print("FR:")
+        print(LeggedRobot.robot_data.oMf[11].translation)
+        print("\n")
+        print("RL:")
+        print(LeggedRobot.robot_data.oMf[27].translation)
+        print("\n")
+        print("RR:")
+        print(LeggedRobot.robot_data.oMf[35].translation)
+        print("\n")
+        print("Grip:")
+        print(LeggedRobot.robot_data.oMf[57].translation)
         print(joints_py)
         p.stepSimulation()
-        time.sleep(10)
+        break
+    break
 
 
 # Cleanup
