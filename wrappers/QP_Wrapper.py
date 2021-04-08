@@ -24,7 +24,7 @@ class QP:
         options = Options()
         #options.setToMPC()
         options.enableFlippingBounds = BooleanType.FALSE
-        options.initialStatusBounds = SubjectToStatus.INACTIVE
+        #options.initialStatusBounds = SubjectToStatus.INACTIVE
         options.numRefinementSteps = 1
 
         qp.setOptions(options)
