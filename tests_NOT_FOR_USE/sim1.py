@@ -54,13 +54,13 @@ p.setRealTimeSimulation(0)
 
 # Main while loop
 while (1):
-    with open("test2.txt", "r") as filestream:
+    with open("neutral.txt", "r") as filestream:
         for line in filestream:
             maxForce = p.readUserDebugParameter(maxForceId)
             currentline = line.split(",")
             frame = currentline[0]
             t = currentline[1]
-            joints_py = currentline[2:]
+            joints_py = currentline[3:]
             for i in range(len(joints_py)):
                 joints_pin_base.append(float(joints_py[i]))
             joints_pin = np.array(joints_pin_base)
@@ -72,7 +72,7 @@ while (1):
                 p.setJointMotorControl2(LeggedRobot_py, jointIds[j], p.POSITION_CONTROL, targetPos, force=maxForce)
             
             IMU_state = p.getLinkState(LeggedRobot_py, 1)
-            pin.forwardKinematics(LeggedRobot_pin, LeggedRobot_data, joints_pin)
+            #pin.forwardKinematics(LeggedRobot_pin, LeggedRobot_data, joints_pin)
             p.stepSimulation()
             time.sleep(1./500.)
             #print("\n Joint positions: \n")
