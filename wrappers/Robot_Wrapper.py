@@ -20,38 +20,44 @@ class RobotModel:
         self.stand_joint_config = np.array([0,0,0,0,0,0,1,0.037199,0.660252,-1.200187,-0.028954,0.618814,-1.183148,0.048225,0.690008,-1.254787,-0.050525,0.661355,-1.243304, 0, -1.6, 1.6, 0, 0, 0, 0.02, -0.02])
         self.current_joint_config = 0
         #self.neutralConfig()
-        self.updateState(self.stand_joint_config)
+        self.updateState(self.stand_joint_config, feedback=False)
         self.comJacobian()
         self.cartesian_targetsEE = 0
         self.cartesian_targetsCoM = 0
         self.end_effector_jacobians = 0
         
         self.sampling_time = 0.002 #in seconds (2ms)
-        self.end_effector_index_list_frame = [19, 11, 27, 35, 57]
+        self.end_effector_index_list_frame = [19, 11, 35, 27, 57]
         
 
-    def updateState(self, joint_config):
+    def updateState(self, joint_config, base_config=0, feedback=True): # put floatig base info here
+        if feedback == True:
+            config = np.concatenate((base_config, joint_config), axis=0)
+
+        else:
+            config = joint_config
+        
         #update robot configuration
-        pin.forwardKinematics(self.robot_model, self.robot_data, joint_config)
+        pin.forwardKinematics(self.robot_model, self.robot_data, config)
         #update current joint configurations, joint jacobians and absolute joint placements in the world frame
         self.previouse_joint_config = self.current_joint_config
-        self.current_joint_config = joint_config
+        self.current_joint_config = config
         
         self.J = pin.computeJointJacobians(self.robot_model, self.robot_data)
         self.comJacobian()
         #print("\n\n")
         #print(self.robot_data.com[0])
         #print("\n\n")
-        pin.framesForwardKinematics(self.robot_model, self.robot_data, joint_config)
+        pin.framesForwardKinematics(self.robot_model, self.robot_data, config)
         self.oMi = self.robot_data.oMi
         #print(joint_config)
         
-    def jointVelocitiestoConfig(self, joint_vel, updateModel=False):
+    def jointVelocitiestoConfig(self, joint_vel, updateModel=False): # add floating base stuff
         new_config = pin.integrate(self.robot_model, self.current_joint_config, joint_vel)
         if updateModel == True:
-            self.updateState(new_config)
+            self.updateState(new_config, feedback=False)
         if updateModel == False:
-            return new_config
+            return new_config[7:]
 
     def EndEffectorJacobians(self): # This works with the current model configuration
         self.end_effector_jacobians = np.transpose(pin.getFrameJacobian(self.robot_model, self.robot_data, self.end_effector_index_list_frame[0], pin.LOCAL))
@@ -59,10 +65,13 @@ class RobotModel:
             J = np.transpose(pin.getFrameJacobian(self.robot_model, self.robot_data, self.end_effector_index_list_frame[i+1], pin.LOCAL))
             self.end_effector_jacobians = np.concatenate((self.end_effector_jacobians, J), axis = 1)
         self.end_effector_jacobians = np.transpose(self.end_effector_jacobians)
-        W = np.identity(30)*10000 # Later this can be used to weight each of the cartisian tasks
+        W = np.identity(30)*250 # Later this can be used to weight each of the cartisian tasks
         self.end_effector_jacobians = np.dot(W, self.end_effector_jacobians)
         
         #print(self.end_effector_jacobians)
+
+    #def TrunkJacobian(self):
+        
             
     def jointVelLimitsArray(self): # returns an array for the upper and lower joint velocity limits which will be used for QP
         vel_lim = self.robot_model.velocityLimit
@@ -104,7 +113,7 @@ class RobotModel:
         return A
 
     def cartesianTargetsEE(self, target_cartesian_pos, target_cartesian_vel):
-        K_cart = np.identity(6)*20
+        K_cart = np.identity(6)*40
         target_list = [0, 0, 0, 0, 0]
         if np.sum(target_cartesian_pos) == 0 and np.sum(target_cartesian_vel) == 0:
             self.cartesian_targetsEE = np.zeros((30,1))
@@ -136,17 +145,17 @@ class RobotModel:
 
     def posAndVelTargetsCoM(self, objective):
         err = objective - np.array([self.robot_data.com[0]]).T
-        #print(err)
-        step = err/(5000)
+        print(err)
+        step = err/(10000)
         base = np.array([self.robot_data.com[0]]).T
-        planner_pos = [0]*5000
+        planner_pos = [0]*10000
         planner_pos[0] = base
         for i in range(len(planner_pos)-1):
             planner_pos[i+1] = planner_pos[i] + step
         
-        planner_vel = [0]*5000
+        planner_vel = [0]*10000
         for i in range(len(planner_vel)):
-            planner_vel[i] = step/5000
+            planner_vel[i] = step/10000
         
         return planner_pos, planner_vel
         
