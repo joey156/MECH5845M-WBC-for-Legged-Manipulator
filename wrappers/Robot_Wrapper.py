@@ -25,9 +25,18 @@ class RobotModel:
         self.cartesian_targetsEE = 0
         self.cartesian_targetsCoM = 0
         self.end_effector_jacobians = 0
+        self.cartesian_targetsTrunk = 0
+
+        # cartesian task weights
+        self.com_weight = np.identity(3)*10000
+        self.trunk_weight = np.identity(6)*100000
+        
+        # cartesian proportional gains
+        
         
         self.sampling_time = 0.002 #in seconds (2ms)
         self.end_effector_index_list_frame = [19, 11, 35, 27, 57]
+        self.trunk_frame_index= 63
         
 
     def updateState(self, joint_config, base_config=0, feedback=True): # put floatig base info here
@@ -57,7 +66,7 @@ class RobotModel:
         if updateModel == True:
             self.updateState(new_config, feedback=False)
         if updateModel == False:
-            return new_config[7:]
+            return new_config
 
     def EndEffectorJacobians(self): # This works with the current model configuration
         self.end_effector_jacobians = np.transpose(pin.getFrameJacobian(self.robot_model, self.robot_data, self.end_effector_index_list_frame[0], pin.LOCAL))
@@ -65,19 +74,21 @@ class RobotModel:
             J = np.transpose(pin.getFrameJacobian(self.robot_model, self.robot_data, self.end_effector_index_list_frame[i+1], pin.LOCAL))
             self.end_effector_jacobians = np.concatenate((self.end_effector_jacobians, J), axis = 1)
         self.end_effector_jacobians = np.transpose(self.end_effector_jacobians)
-        W = np.identity(30)*250 # Later this can be used to weight each of the cartisian tasks
+        W = np.identity(30)*2500# 300 for CoM priotisisation, 2000 for EE prioritorisation
         self.end_effector_jacobians = np.dot(W, self.end_effector_jacobians)
         
         #print(self.end_effector_jacobians)
 
-    #def TrunkJacobian(self):
+    def TrunkJacobian(self):
+        J = pin.getFrameJacobian(self.robot_model, self.robot_data, self.trunk_frame_index, pin.WORLD)
+        self.trunkJ = np.dot(self.trunk_weight, J)
         
             
     def jointVelLimitsArray(self): # returns an array for the upper and lower joint velocity limits which will be used for QP
         vel_lim = self.robot_model.velocityLimit
         for i in range(len(vel_lim)):
             if np.isinf(vel_lim[i]):
-                vel_lim[i] = 0
+                vel_lim[i] = 0.1
         lower_vel_lim = -vel_lim[np.newaxis]
         upper_vel_lim = vel_lim[np.newaxis]
         return lower_vel_lim, upper_vel_lim
@@ -102,18 +113,19 @@ class RobotModel:
 
     def comJacobian(self):
         J = pin.jacobianCenterOfMass(self.robot_model, self.robot_data, self.current_joint_config)
-        W = np.identity(3)*10000
-        self.comJ = np.dot(W, J)
+        self.comJ = np.dot(self.com_weight, J)
         return J
 
     def qpCartesianA(self):
         self.comJacobian()
         self.EndEffectorJacobians()
+        self.TrunkJacobian()
         A = np.concatenate((self.end_effector_jacobians, self.comJ), axis=0)
+        A = np.concatenate((A, self.trunkJ), axis=0)
         return A
 
     def cartesianTargetsEE(self, target_cartesian_pos, target_cartesian_vel):
-        K_cart = np.identity(6)*40
+        K_cart = np.identity(6)*50
         target_list = [0, 0, 0, 0, 0]
         if np.sum(target_cartesian_pos) == 0 and np.sum(target_cartesian_vel) == 0:
             self.cartesian_targetsEE = np.zeros((30,1))
@@ -143,27 +155,41 @@ class RobotModel:
             #print(self.cartesian_targetsCoM)
             #self.cartesian_targetsCoM = np.dot(K_cart, (target_cartesian_pos-np.array([self.robot_data.com[0]]).T))
 
+    def cartesianTargetTrunk(self, target_cartesian_pos, target_cartesian_vel):
+        K_cart = np.identity(6)* 2000
+        if np.sum(target_cartesian_pos) == 0 and np.sum(target_cartesian_vel) == 0:
+            self.cartesian_targetsTrunk = np.zeros((6,1))
+        else:
+            x = target_cartesian_pos - np.array([self.robot_data.oMf[self.trunk_frame_index].translation]).T
+            rot = self.robot_data.oMf[self.trunk_frame_index].rotation
+            rot = self.Rot2Euler(rot)
+            rot = np.array([[0,0,0]]).T
+            x = np.concatenate((x,rot), axis=0)
+            self.cartesian_targetsTrunk = target_cartesian_vel + np.dot(K_cart, x)
+
+
     def posAndVelTargetsCoM(self, objective):
         err = objective - np.array([self.robot_data.com[0]]).T
         print(err)
-        step = err/(10000)
+        step = err/(5000)
         base = np.array([self.robot_data.com[0]]).T
-        planner_pos = [0]*10000
+        planner_pos = [0]*5000
         planner_pos[0] = base
         for i in range(len(planner_pos)-1):
             planner_pos[i+1] = planner_pos[i] + step
         
-        planner_vel = [0]*10000
+        planner_vel = [0]*5000
         for i in range(len(planner_vel)):
-            planner_vel[i] = step/10000
+            planner_vel[i] = 0 #step/5000
         
         return planner_pos, planner_vel
         
-    def qpCartesianB(self, target_cartesian_pos_CoM, target_cartesian_vel_CoM, target_cartesian_pos_EE, target_cartesian_vel_EE):
+    def qpCartesianB(self, target_cartesian_pos_CoM, target_cartesian_vel_CoM, target_cartesian_pos_EE, target_cartesian_vel_EE, target_cartesian_pos_trunk, target_cartesian_vel_trunk):
         self.cartesianTargetCoM(target_cartesian_pos_CoM, target_cartesian_vel_CoM)
         self.cartesianTargetsEE(target_cartesian_pos_EE, target_cartesian_vel_EE)
-        #print(self.cartesian_targetsEE)
+        self.cartesianTargetTrunk(target_cartesian_pos_trunk, target_cartesian_vel_trunk)
         b = np.concatenate((self.cartesian_targetsEE ,self.cartesian_targetsCoM), axis=0)
+        b = np.concatenate((b, self.cartesian_targetsTrunk), axis=0)
         return b
 
     #Initial Configuration

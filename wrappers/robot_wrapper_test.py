@@ -5,6 +5,11 @@ from Robot_Wrapper import RobotModel
 import numpy as np
 import pinocchio as pin
 
+large_width = 400
+np.set_printoptions(linewidth=large_width)
+np.set_printoptions(precision=3)
+np.set_printoptions(suppress=True)
+np.set_printoptions(threshold=1200)
 
 urdf = "/home/joey156/Disso_ws/MECH5845M-WBC-for-Legged-Manipulator/Robot_Descriptions/urdf/a1_wx200.urdf"
 
@@ -46,22 +51,26 @@ LeggedRobot.cartesianTargetsEE(EE_target_pos, EE_target_vel)
 
 #print(LeggedRobot.cartesian_targetsCoM)
 #print("success")
-#print(LeggedRobot.robot_data.oMf[11].translation)
-#print(LeggedRobot.robot_data.oMf[19].translation)
-#print(LeggedRobot.robot_data.oMf[27].translation)
-#print(LeggedRobot.robot_data.oMf[35].translation)
+print("this")
+print(LeggedRobot.robot_data.oMf[11].translation)
+print(LeggedRobot.robot_data.oMf[19].translation)
+print(LeggedRobot.robot_data.oMf[27].translation)
+print(LeggedRobot.robot_data.oMf[35].translation)
 print(LeggedRobot.robot_data.oMf[57].translation)
 #planner_pos, planner_vel = LeggedRobot.posAndVelTargetsCoM(com_target_pos)
 #print(planner_vel[0])
 #.printJointCart()
 print(LeggedRobot.robot_model.getJointId("floating_base"))
-print(pin.getJointJacobian(LeggedRobot.robot_model, LeggedRobot.robot_data, 1, pin.LOCAL))
+print(pin.getJointJacobian(LeggedRobot.robot_model, LeggedRobot.robot_data, 1, pin.LOCAL_WORLD_ALIGNED))
 
 print(LeggedRobot.robot_model.getFrameId("imu_joint", pin.FIXED_JOINT))
-print(pin.getFrameJacobian(LeggedRobot.robot_model, LeggedRobot.robot_data, 63, pin.LOCAL))
+print(pin.getFrameJacobian(LeggedRobot.robot_model, LeggedRobot.robot_data, 63, pin.LOCAL_WORLD_ALIGNED))
 #print(LeggedRobot.robot_model.getFrameId("RL_foot_fixed", pin.FIXED_JOINT))
 #print(LeggedRobot.robot_model.getFrameId("RR_foot_fixed", pin.FIXED_JOINT))
 #print(LeggedRobot.robot_model.getFrameId("ee_gripper", pin.FIXED_JOINT))
 #print(LeggedRobot.robot_model.getFrameId("gripper", pin.FIXED_JOINT))
 #print(LeggedRobot.qpCartesianA())
 #print(LeggedRobot.comJ)
+
+A = LeggedRobot.qpCartesianA()
+print(A)
