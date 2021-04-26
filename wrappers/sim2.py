@@ -4,6 +4,7 @@ import pinocchio as pin
 import numpy as np
 from QP_Wrapper import QP
 from Robot_Wrapper import RobotModel
+from klampt.model import trajectory
 
 # setup simulation parameters
 p.connect(p.GUI)
@@ -48,19 +49,19 @@ for j in range(p.getNumJoints(LeggedRobot_bullet)):
 p.getCameraImage(580,320)
 p.setRealTimeSimulation(0)
 
-# setting objectives5
-
-
+# setting objectives
 EE_pos_FL = np.array([[0.174, -0.142, -0.329]]).T
 EE_pos_FR = np.array([[0.163, 0.144, -0.326]]).T
 EE_pos_RL = np.array([[-0.196, -0.148, -0.32]]).T
 EE_pos_RR = np.array([[-0.203, 0.148, -0.319]]).T
-EE_pos_GRIP = np.array([[0.5, 0., -0.15]]).T #base: 0.252 0. 0.207 reach 0.5 0 -0.15
+EE_pos_GRIP = np.array([[0.202, 0., 0.227]]).T #base: 0.252 0. 0.207 reach 0.5 0 -0.15
 EE_vel = np.array([[0,0,0,0,0,0]]).T
 Trunk_target_pos = np.array([[0.0, 0.00, 0.00]]).T # 0.013 0.002 0.001
 Trunk_target_vel = np.array([[0,0,0,0,0,0]]).T
 EE_target_pos = [EE_pos_FL, EE_pos_FR, EE_pos_RL, EE_pos_RR, EE_pos_GRIP]
 EE_target_vel = [EE_vel, EE_vel, EE_vel, EE_vel, EE_vel]
+
+
 
 # Main while loop
 while (1):
@@ -108,14 +109,28 @@ while (1):
 
     planner_pos, planner_vel = LeggedRobot.posAndVelTargetsCoM(com_target_pos)
 
-  
+    # setting gripper trajectory
+    current_gripper_pos = LeggedRobot.robot_data.oMf[53].translation
+    gripper_displacement = np.array([0.4, 0.02, -0.15])
+    milestones = [current_gripper_pos.tolist(), [0.3, 0.01, 0.207], [0.35, 0.02, 0], [0.4, 0.03, -0.10]]
+    traj = trajectory.Trajectory(milestones=milestones)
+    traj2 = trajectory.HermiteTrajectory()
+    traj2.makeSpline(traj)
+    traj_interval = np.arange(0,len(milestones),0.0005).tolist()
+
+    # plot desired trajectory
+    previouse_traj_point = np.add(traj2.eval(0), base_pos).tolist()
+    for i in np.arange(0,len(milestones),0.1).tolist():
+        current_traj_point = np.add(traj2.eval(i), base_pos).tolist()
+        p.addUserDebugLine(previouse_traj_point, current_traj_point, lineColorRGB=[0,0,0], lineWidth=5, lifeTime=0)
+        previouse_traj_point = current_traj_point
     
     t = time.time()
     while (time.time()- t) < 2:
             p.stepSimulation()
             time.sleep(1./500)
     print("start")
-    for i in range(len(planner_pos)):
+    for i in traj_interval:
 
         #print(planner_pos[i])
         
@@ -131,10 +146,12 @@ while (1):
         #lb = lower_vel_lim.reshape((26,))
         #ub = upper_vel_lim.reshape((26,))
         
-        #print(planner_pos[i])
+        # Find new gripper position
+        EE_pos_GRIP = np.array([traj2.eval(i)]).T
+        EE_target_pos[4] = EE_pos_GRIP
         # Fetch the new A and b for QP
         A = LeggedRobot.qpCartesianA()
-        b = LeggedRobot.qpCartesianB(planner_pos[i], planner_vel[i], EE_target_pos, EE_target_vel, Trunk_target_pos, Trunk_target_vel).reshape((39,))
+        b = LeggedRobot.qpCartesianB(planner_pos[0], planner_vel[0], EE_target_pos, EE_target_vel, Trunk_target_pos, Trunk_target_vel).reshape((39,))
         # Solve QP
         qp = QP(A, b, lb, ub)
         q_vel = qp.solveQP()
@@ -199,7 +216,7 @@ while (1):
         print(LeggedRobot.robot_data.oMf[35].translation)
         print("\n")
         print("Grip:")
-        print(LeggedRobot.robot_data.oMf[57].translation)
+        print(LeggedRobot.robot_data.oMf[53].translation)
         print(joints_py)
         p.stepSimulation()
         break
