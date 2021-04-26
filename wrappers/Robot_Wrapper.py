@@ -19,6 +19,22 @@ class RobotModel:
         #set robot to a neutral stance and initalise parameters
         self.stand_joint_config = np.array([0,0,0,0,0,0,1,0.037199,0.660252,-1.200187,-0.028954,0.618814,-1.183148,0.048225,0.690008,-1.254787,-0.050525,0.661355,-1.243304, 0, -1.6, 1.6, 0, 0, 0, 0.02, -0.02])
         self.current_joint_config = 0
+
+        # cartesian task weights
+        self.com_weight = np.identity(3) * 1.1
+        self.trunk_weight = np.identity(6) * 0.85
+        self.FR_weight = np.identity(6) * 0.8
+        self.FL_weight = np.identity(6) * 0.8
+        self.RR_weight = np.identity(6) * 0.8
+        self.RL_weight = np.identity(6) * 0.8
+        self.grip_weight = np.identity(6) * 1.2
+        self.EE_weight = [self.FR_weight, self.FL_weight, self.RR_weight, self.RL_weight, self.grip_weight]
+
+        # cartesian proportional gains
+        self.com_gain = np.identity(3)*1.2
+        self.trunk_gain = np.identity(6)* 1
+        self.EE_gain = np.identity(6)*1.4
+        
         #self.neutralConfig()
         self.updateState(self.stand_joint_config, feedback=False)
         self.comJacobian()
@@ -27,15 +43,8 @@ class RobotModel:
         self.end_effector_jacobians = 0
         self.cartesian_targetsTrunk = 0
 
-        # cartesian task weights
-        self.com_weight = np.identity(3)*10000
-        self.trunk_weight = np.identity(6)*100000
-        
-        # cartesian proportional gains
-        
-        
         self.sampling_time = 0.002 #in seconds (2ms)
-        self.end_effector_index_list_frame = [19, 11, 35, 27, 57]
+        self.end_effector_index_list_frame = [19, 11, 35, 27, 53]
         self.trunk_frame_index= 63
         
 
@@ -69,15 +78,15 @@ class RobotModel:
             return new_config
 
     def EndEffectorJacobians(self): # This works with the current model configuration
-        self.end_effector_jacobians = np.transpose(pin.getFrameJacobian(self.robot_model, self.robot_data, self.end_effector_index_list_frame[0], pin.LOCAL))
+        self.end_effector_jacobians = np.dot(np.transpose(pin.getFrameJacobian(self.robot_model, self.robot_data, self.end_effector_index_list_frame[0], pin.LOCAL_WORLD_ALIGNED)), self.EE_weight[0])
         for i in range(len(self.end_effector_index_list_frame)-1):
-            J = np.transpose(pin.getFrameJacobian(self.robot_model, self.robot_data, self.end_effector_index_list_frame[i+1], pin.LOCAL))
+            if i < 3:
+                J = np.transpose(pin.getFrameJacobian(self.robot_model, self.robot_data, self.end_effector_index_list_frame[i+1], pin.LOCAL_WORLD_ALIGNED))
+            else:
+                J = np.transpose(pin.getFrameJacobian(self.robot_model, self.robot_data, self.end_effector_index_list_frame[i+1], pin.LOCAL_WORLD_ALIGNED))
+            J = np.dot(J, self.EE_weight[i+1])
             self.end_effector_jacobians = np.concatenate((self.end_effector_jacobians, J), axis = 1)
         self.end_effector_jacobians = np.transpose(self.end_effector_jacobians)
-        W = np.identity(30)*2500# 300 for CoM priotisisation, 2000 for EE prioritorisation
-        self.end_effector_jacobians = np.dot(W, self.end_effector_jacobians)
-        
-        #print(self.end_effector_jacobians)
 
     def TrunkJacobian(self):
         J = pin.getFrameJacobian(self.robot_model, self.robot_data, self.trunk_frame_index, pin.WORLD)
@@ -125,7 +134,6 @@ class RobotModel:
         return A
 
     def cartesianTargetsEE(self, target_cartesian_pos, target_cartesian_vel):
-        K_cart = np.identity(6)*50
         target_list = [0, 0, 0, 0, 0]
         if np.sum(target_cartesian_pos) == 0 and np.sum(target_cartesian_vel) == 0:
             self.cartesian_targetsEE = np.zeros((30,1))
@@ -139,24 +147,22 @@ class RobotModel:
                     rot = np.array([[0,0,0]]).T
                     x = target_cartesian_pos[i] - np.array([self.robot_data.oMf[self.end_effector_index_list_frame[i]].translation]).T
                     x = np.concatenate((x,rot),axis=0)
-                    target_list[i] = target_cartesian_vel[i] + np.dot(K_cart, x)
+                    target_list[i] = target_cartesian_vel[i] + np.dot(self.EE_gain, x)
                     
             self.cartesian_targetsEE = target_list[0]
             for i in range(len(target_list)-1):
                 self.cartesian_targetsEE = np.concatenate((self.cartesian_targetsEE,target_list[i+1]), axis=0)
 
     def cartesianTargetCoM(self, target_cartesian_pos, target_cartesian_vel):
-        K_cart = np.identity(3)*3000
         if np.sum(target_cartesian_pos) == 0 and np.sum(target_cartesian_vel) == 0:
             self.cartesian_targetsCoM = np.zeros((3,1))
         else:
             x = target_cartesian_pos - np.array([self.robot_data.com[0]]).T
-            self.cartesian_targetsCoM = target_cartesian_vel + np.dot(K_cart, x)
+            self.cartesian_targetsCoM = target_cartesian_vel + np.dot(self.com_gain, x)
             #print(self.cartesian_targetsCoM)
             #self.cartesian_targetsCoM = np.dot(K_cart, (target_cartesian_pos-np.array([self.robot_data.com[0]]).T))
 
     def cartesianTargetTrunk(self, target_cartesian_pos, target_cartesian_vel):
-        K_cart = np.identity(6)* 2000
         if np.sum(target_cartesian_pos) == 0 and np.sum(target_cartesian_vel) == 0:
             self.cartesian_targetsTrunk = np.zeros((6,1))
         else:
@@ -165,20 +171,20 @@ class RobotModel:
             rot = self.Rot2Euler(rot)
             rot = np.array([[0,0,0]]).T
             x = np.concatenate((x,rot), axis=0)
-            self.cartesian_targetsTrunk = target_cartesian_vel + np.dot(K_cart, x)
+            self.cartesian_targetsTrunk = target_cartesian_vel + np.dot(self.trunk_gain, x)
 
 
     def posAndVelTargetsCoM(self, objective):
         err = objective - np.array([self.robot_data.com[0]]).T
         print(err)
-        step = err/(5000)
+        step = err/(10000)
         base = np.array([self.robot_data.com[0]]).T
-        planner_pos = [0]*5000
+        planner_pos = [0]*10000
         planner_pos[0] = base
         for i in range(len(planner_pos)-1):
             planner_pos[i+1] = planner_pos[i] + step
         
-        planner_vel = [0]*5000
+        planner_vel = [0]*10000
         for i in range(len(planner_vel)):
             planner_vel[i] = 0 #step/5000
         
