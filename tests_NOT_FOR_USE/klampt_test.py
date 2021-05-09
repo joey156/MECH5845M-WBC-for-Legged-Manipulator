@@ -15,8 +15,9 @@ vis.spin(float('inf'))   #show the window until you close it
 traj2 = trajectory.HermiteTrajectory()
 traj2.makeSpline(traj)
 
-vis.animate("point",traj2)
-vis.add("traj2",traj2)
-vis.spin(float('inf'))
+#vis.animate("point",traj2)
+#vis.add("traj2",traj2)
+#vis.spin(float('inf'))
 
-print(np.array(traj2.eval(0.1)).shape)
+#print(np.array(traj2.eval(0.1)).shape)
+
