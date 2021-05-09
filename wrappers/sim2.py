@@ -23,7 +23,8 @@ p.setCollisionFilterPair(LeggedRobot_bullet, LeggedRobot_bullet, 26, 28, 0)
 p.setCollisionFilterPair(LeggedRobot_bullet, LeggedRobot_bullet, 26, 29, 0)
 
 # initialise the RobotModel class
-LeggedRobot = RobotModel(urdf_path)
+LeggedRobot = RobotModel(urdf_path, "FL_foot_fixed", "FR_foot_fixed", "RL_foot_fixed", "RR_foot_fixed", "gripper_bar", "FL_calf_joint", "FR_calf_joint", "RL_calf_joint", "RR_calf_joint", "gripper", "waist", "imu_joint")
+print(LeggedRobot.current_joint_config)
 
 # Initialising lists
 jointIds = []
@@ -47,16 +48,17 @@ for j in range(p.getNumJoints(LeggedRobot_bullet)):
 
 # Simulation camera settings
 p.getCameraImage(580,320)
+p.resetDebugVisualizerCamera(1.0,1.25,-19.8,[0.07,0.1,0.07])
 p.setRealTimeSimulation(0)
 
 # setting objectives
-EE_pos_FL = np.array([[0.174, -0.142, -0.329]]).T
-EE_pos_FR = np.array([[0.163, 0.144, -0.326]]).T
-EE_pos_RL = np.array([[-0.196, -0.148, -0.32]]).T
-EE_pos_RR = np.array([[-0.203, 0.148, -0.319]]).T
-EE_pos_GRIP = np.array([[0.202, 0., 0.227]]).T #base: 0.252 0. 0.207 reach 0.5 0 -0.15
+EE_pos_FL = np.array([LeggedRobot.robot_data.oMf[11].translation]).T #np.array([[0.174, -0.142, -0.32]]).T
+EE_pos_FR = np.array([LeggedRobot.robot_data.oMf[19].translation]).T #np.array([[0.163, 0.144, -0.32]]).T
+EE_pos_RL = np.array([LeggedRobot.robot_data.oMf[27].translation]).T #np.array([[-0.196, -0.148, -0.32]]).T
+EE_pos_RR = np.array([LeggedRobot.robot_data.oMf[35].translation]).T #np.array([[-0.203, 0.148, -0.32]]).T
+EE_pos_GRIP = np.array([LeggedRobot.robot_data.oMf[53].translation]).T #np.array([[0.202, 0., 0.227]]).T #base: 0.252 0. 0.207 reach 0.5 0 -0.15
 EE_vel = np.array([[0,0,0,0,0,0]]).T
-Trunk_target_pos = np.array([[0.0, 0.00, 0.00]]).T # 0.013 0.002 0.001
+Trunk_target_pos = np.array([LeggedRobot.robot_data.oMf[63].translation]).T # 0.013 0.002 0.001
 Trunk_target_vel = np.array([[0,0,0,0,0,0]]).T
 EE_target_pos = [EE_pos_FL, EE_pos_FR, EE_pos_RL, EE_pos_RR, EE_pos_GRIP]
 EE_target_vel = [EE_vel, EE_vel, EE_vel, EE_vel, EE_vel]
@@ -97,7 +99,7 @@ while (1):
     imu_state = p.getLinkState(LeggedRobot_bullet, 0)
     base_config = np.concatenate((LeggedRobot.current_joint_config[:3], np.array(imu_state[5])), axis=0)
     print(base_config)
-    LeggedRobot.updateState(joints_py_feedback, base_config)
+    LeggedRobot.updateState(joints_py, base_config)
 
     # get CoM position
     base_pos = imu_state[0]
@@ -111,19 +113,23 @@ while (1):
 
     # setting gripper trajectory
     current_gripper_pos = LeggedRobot.robot_data.oMf[53].translation
+    print(current_gripper_pos)
     gripper_displacement = np.array([0.4, 0.02, -0.15])
-    milestones = [current_gripper_pos.tolist(), [0.3, 0.01, 0.207], [0.35, 0.02, 0], [0.4, 0.03, -0.10]]
+    milestones = [current_gripper_pos.tolist(), [0.4, 0., 0.24], [0.4, -0.3, 0.24], [-0.2, -0.3, 0.24], [-0.2, -0.3, -0.04], [0.4, -0.3, -0.04], [0.4, 0.3, -0.04], [-0.2, 0.3, -0.04], [-0.2, 0.3, 0.24],[0.4, 0.3, 0.24], [0.4, 0, 0.24]]
+    #milestones = [current_gripper_pos.tolist(), np.add(current_gripper_pos, np.array([0.1, 0, 0])).tolist()]
     traj = trajectory.Trajectory(milestones=milestones)
     traj2 = trajectory.HermiteTrajectory()
-    traj2.makeSpline(traj)
-    traj_interval = np.arange(0,len(milestones),0.0005).tolist()
+    traj2.makeSpline(traj)  
+    traj_interval = np.arange(0,len(milestones),0.0003).tolist()
 
     # plot desired trajectory
     previouse_traj_point = np.add(traj2.eval(0), base_pos).tolist()
     for i in np.arange(0,len(milestones),0.1).tolist():
         current_traj_point = np.add(traj2.eval(i), base_pos).tolist()
-        p.addUserDebugLine(previouse_traj_point, current_traj_point, lineColorRGB=[0,0,0], lineWidth=5, lifeTime=0)
+        p.addUserDebugLine(previouse_traj_point, current_traj_point, lineColorRGB=[0,0,0], lineWidth=3, lifeTime=0)
         previouse_traj_point = current_traj_point
+
+    print(LeggedRobot.com_weight)
     
     t = time.time()
     while (time.time()- t) < 2:
@@ -139,8 +145,8 @@ while (1):
         # Fetch and combine joint position and velocity limits
         lower_vel_lim, upper_vel_lim = LeggedRobot.jointVelLimitsArray()
         lower_pos_lim, upper_pos_lim = LeggedRobot.jointPosLimitsArray()
-        lb = np.concatenate((lower_vel_lim.T, lower_pos_lim), axis=0).reshape((52,))
-        ub = np.concatenate((upper_vel_lim.T, upper_pos_lim), axis=0).reshape((52,))
+        lb = np.concatenate((lower_vel_lim.T, lower_pos_lim), axis=0).reshape(((LeggedRobot.n_velocity_dimensions*2),))
+        ub = np.concatenate((upper_vel_lim.T, upper_pos_lim), axis=0).reshape(((LeggedRobot.n_velocity_dimensions*2),))
         #lb = lower_pos_lim.reshape((26,))
         #ub = upper_pos_lim.reshape((26,))
         #lb = lower_vel_lim.reshape((26,))
@@ -149,6 +155,7 @@ while (1):
         # Find new gripper position
         EE_pos_GRIP = np.array([traj2.eval(i)]).T
         EE_target_pos[4] = EE_pos_GRIP
+        #print(EE_target_pos)
         # Fetch the new A and b for QP
         A = LeggedRobot.qpCartesianA()
         b = LeggedRobot.qpCartesianB(planner_pos[0], planner_vel[0], EE_target_pos, EE_target_vel, Trunk_target_pos, Trunk_target_vel).reshape((39,))
@@ -177,18 +184,16 @@ while (1):
         # fetch the IMU data for potision and orientation in the world frame
         imu_state = p.getLinkState(LeggedRobot_bullet, 0)
         base_config = np.concatenate((LeggedRobot.current_joint_config[:3], np.array(imu_state[5])), axis=0)
-        LeggedRobot.updateState(joints_py_feedback, base_config)
+        LeggedRobot.updateState(joint_config, base_config)
 
         # visually track the CoM
         base_pos = imu_state[0]
         current_com_pos = np.add(LeggedRobot.robot_data.com[0], base_pos).tolist()
 
-        #p.addUserDebugLine(previouse_com_pos, current_com_pos, lineColorRGB=[0,0,0], lineWidth=10, lifeTime=0, parentObjectUniqueId=100)
+        #p.addUserDebugLine(previouse_com_pos, current_com_pos, lineColorRGB=[255,0,0], lineWidth=10, lifeTime=0, parentObjectUniqueId=100)
 
         previouse_com_pos = current_com_pos
         
-        #print(LeggedRobot.robot_data.oMf[57].translation)
-        #print(EE_pos_GRIP.T.reshape(3,))
         #if target reached exit
         if np.array_equal(LeggedRobot.robot_data.oMf[57].translation, EE_pos_GRIP.T.reshape(3,)):
             break
