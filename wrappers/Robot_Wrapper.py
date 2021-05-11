@@ -3,6 +3,7 @@ import numpy as np
 import math
 from QP_Wrapper import QP
 from klampt.model import trajectory
+from PID_Controller import PID
 
 large_width = 400
 np.set_printoptions(linewidth=large_width)
@@ -10,7 +11,7 @@ np.set_printoptions(precision=3)
 np.set_printoptions(suppress=True)
 
 class RobotModel:
-    def __init__(self, urdf_path, FL_frame, FR_frame, RL_frame, RR_frame, G_frame, FL_joint, FR_joint, RL_joint, RR_joint, G_joint, G_base, imu):
+    def __init__(self, urdf_path, EE_frame_names, EE_joint_names, G_base, imu, FR_hip_joint):
         #initialise pinocchio model and data
         self.robot_model = pin.buildModelFromUrdf(urdf_path)
         self.robot_data = self.robot_model.createData()
@@ -21,10 +22,14 @@ class RobotModel:
         #self.stand_joint_config = np.array([0,0,0,0,0,0,1,0.037199,0.660252,-1.200187,-0.028954,0.618814,-1.183148,0.048225,0.690008,-1.254787,-0.050525,0.661355,-1.243304, 0, -1.6, 1.6, 0, 0, 0, 0.02, -0.02])
         #self.stand_joint_config = np.array([ 0.,-0.,0.,0.,0.,0.,1.,0.,0.625,-0.754,-0.,0.625,-0.754,0.,0.625,-0.754,-0.,0.625,-0.754,0.,0.068,0.287,-0.36,-0.,0.,0.,0.])
         self.current_joint_config = 0
-        self.EE_frame_names = [FL_frame, FR_frame, RL_frame, RR_frame, G_frame]
-        self.EE_joint_names = [FL_joint, FR_joint, RL_joint, RR_joint, G_joint]
-        self.arm_base_id = self.robot_model.getJointId(G_base)
+        self.EE_frame_names = EE_frame_names
+        self.EE_joint_names = EE_joint_names
+        self.arm_base_id = self.robot_model.getJointId(G_base) #G_base
+        self.FR_hip_joint = self.robot_model.getJointId(FR_hip_joint)
         self.n_velocity_dimensions = self.robot_model.nv
+        self.n_configuration_dimensions = self.robot_model.nq
+        print(self.n_velocity_dimensions)
+        print(self.n_configuration_dimensions)
         self.n_of_EE = 5
         self.end_effector_index_list_frame = [] #[11, 19, 27, 35, 53]
         self.end_effector_index_list_joint = []
@@ -41,19 +46,19 @@ class RobotModel:
         self.trunk_frame_index= self.robot_model.getFrameId(imu, pin.FIXED_JOINT)
 
         # cartesian task weights
-        self.com_weight = np.identity(3) * 20#1.2
-        self.trunk_weight = np.identity(6) * 15 #1
-        self.FR_weight = np.identity(6) * 20 #0.8
-        self.FL_weight = np.identity(6) * 20 #0.8
-        self.RR_weight = np.identity(6) * 20 #0.8
-        self.RL_weight = np.identity(6) * 20 #0.8
-        self.grip_weight = np.identity(6) * 15 #1
+        self.com_weight = np.identity(3) * 20 # 20#1.2
+        self.trunk_weight = np.identity(6) * 15 #15#1
+        self.FR_weight = np.identity(6) * 20 #20#0.8
+        self.FL_weight = np.identity(6) * 20 #20#0.8
+        self.RR_weight = np.identity(6) * 20 #20#0.8
+        self.RL_weight = np.identity(6) * 20 #20#0.8
+        self.grip_weight = np.identity(6) * 15 #15#1
         self.EE_weight = [self.FR_weight, self.FL_weight, self.RR_weight, self.RL_weight, self.grip_weight]
 
         # cartesian proportional gains
-        self.com_gain = np.identity(3)* 1.5 #1.631
-        self.trunk_gain = np.identity(6)* 1 #0.5425
-        self.EE_gain = np.identity(6)* 1.2 #1.458
+        self.com_gain = np.identity(3)* 1.5 #1.5#1.631
+        self.trunk_gain = np.identity(6)* 0.2 #0.5425
+        self.EE_gain = np.identity(6)*3#1.458
         
         #self.neutralConfig()
         #self.updateState(self.stand_joint_config, feedback=False)
@@ -64,11 +69,20 @@ class RobotModel:
         self.cartesian_targetsTrunk = 0
         self.setInitialState()
 
+        # IMU PID controller gains
+        self.IMU_Kp = 0.9
+        self.IMU_Ki = 0.1 #0.9
+        self.IMU_Kd = 0 #0.005
+        # initialise IMU PID
+        self.IMU_setpoint = self.current_joint_config[:7]
+        self.IMU_PID = PID(self.IMU_Kp, self.sampling_time, self.IMU_setpoint, self.IMU_Ki, self.IMU_Kd)
+
 
     def setInitialState(self):
         
         # seta neutral configuration
         q = pin.neutral(self.robot_model)
+        print(q.shape)
         self.updateState(q, feedback=False)
         # find initial cartesian position of end effectors and trunk
         EE_pos_FL = np.array([self.robot_data.oMf[self.end_effector_index_list_frame[0]].translation]).T
@@ -91,13 +105,14 @@ class RobotModel:
         multiplier_F = np.identity(3)
         multiplier_R = np.identity(3)
         multiplier_G = np.identity(3)
-        multiplier_F[2,2] = 0.65
-        multiplier_R[2,2] = 0.65
-        multiplier_G[2,2] = 0.65
+        multiplier_F[2,2] = 0.65 #0.65
+        multiplier_R[2,2] = 0.65 #0.65
+        multiplier_G[2,2] = 2.8 #0.7
 
         EE_G_pos_2 = EE_pos_GRIP.reshape((3,)).tolist()
         print(EE_G_pos_2)
-        EE_G_pos_2[0] = self.robot_data.oMi[self.arm_base_id].translation[0]
+        EE_G_pos_2[2] = self.robot_data.oMi[self.arm_base_id].translation[2]
+        EE_G_pos_2[0] = self.robot_data.oMi[self.FR_hip_joint].translation[0]#self.robot_data.oMi[self.arm_base_id+5].translation[2]
         print(EE_G_pos_2)
         
         # set trajecotry milestones
@@ -113,7 +128,6 @@ class RobotModel:
         EE_RR_traj = trajectory.Trajectory(milestones=EE_RR_milestones)
         EE_G_traj = trajectory.Trajectory(milestones=EE_G_milestones)
         EE_traj = [EE_FL_traj, EE_FR_traj, EE_RL_traj, EE_RR_traj, EE_G_traj]
-
         
         
         # set the trajectory interval
@@ -121,12 +135,12 @@ class RobotModel:
 
         """ Solving QP until desired initial configuration is reached """
         for i in trajectory_interval:
-
+            
             # set new desired position for each foot
             for ii in range(len(EE_traj)):
                 target_pos = EE_traj[ii]
                 EE_target_pos[ii] = np.array(target_pos.eval(i)).reshape(3,1)
-
+            
             # find joint limits
             lower_vel_lim, upper_vel_lim = self.jointVelLimitsArray(True)
             lower_pos_lim, upper_pos_lim = self.jointPosLimitsArray(True)
@@ -137,7 +151,7 @@ class RobotModel:
             A = self.qpCartesianA()
             b = self.qpCartesianB(com_pos, com_vel, EE_target_pos, EE_target_vel, Trunk_target_pos, Trunk_target_vel).reshape((39,))
             # solver QP
-            qp = QP(A, b, lb, ub)
+            qp = QP(A, b, lb, ub, self.n_velocity_dimensions)
             qp_vel = qp.solveQP()
 
             # find the new joint angles from the QP optimised joint velocities
@@ -157,6 +171,7 @@ class RobotModel:
                 
     def updateState(self, joint_config, base_config=0, feedback=True): # put floatig base info here
         if feedback == True:
+            #base_config = self.IMU_PID.PIDUpdate(base_config,self.current_joint_config[:7])
             config = np.concatenate((base_config, joint_config), axis=0)
 
         else:
@@ -229,7 +244,7 @@ class RobotModel:
             
         lower_pos_lim = np.transpose(self.robot_model.lowerPositionLimit[np.newaxis])
         upper_pos_lim = np.transpose(self.robot_model.upperPositionLimit[np.newaxis])
-        K_lim = np.identity(27)*2
+        K_lim = np.identity(self.n_configuration_dimensions)*2
         lower_pos_lim = np.dot(K_lim,(lower_pos_lim - np.transpose(self.current_joint_config[np.newaxis])))*(1/self.sampling_time)
         upper_pos_lim = np.dot(K_lim,(upper_pos_lim - np.transpose(self.current_joint_config[np.newaxis])))*(1/self.sampling_time)
 

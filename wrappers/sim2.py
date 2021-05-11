@@ -13,17 +13,25 @@ p.setGravity(0,0,-9.8)
 p.setTimeStep(1./500)
 urdfFlags = p.URDF_USE_SELF_COLLISION
 urdf_path = "/home/joey156/Disso_ws/MECH5845M-WBC-for-Legged-Manipulator/Robot_Descriptions/urdf/a1_wx200.urdf"
-
+#urdf_path = "/home/joey156/Disso_ws/MECH5845M-WBC-for-Legged-Manipulator/Robot_Descriptions/urdf/a1_px100_pin_ver.urdf"
 # load the legged robot urdf
 LeggedRobot_bullet = p.loadURDF(urdf_path,[0,0,0.43],[0,0,0,1], flags=urdfFlags, useFixedBase=False)
 
 # Removing the collision pairs between the two gripper fingers and the bar they are attached to
+
 p.setCollisionFilterPair(LeggedRobot_bullet, LeggedRobot_bullet, 28, 29, 0)
 p.setCollisionFilterPair(LeggedRobot_bullet, LeggedRobot_bullet, 26, 28, 0)
 p.setCollisionFilterPair(LeggedRobot_bullet, LeggedRobot_bullet, 26, 29, 0)
-
+"""
+p.setCollisionFilterPair(LeggedRobot_bullet, LeggedRobot_bullet, 27, 28, 0)
+p.setCollisionFilterPair(LeggedRobot_bullet, LeggedRobot_bullet, 25, 27, 0)
+p.setCollisionFilterPair(LeggedRobot_bullet, LeggedRobot_bullet, 25, 28, 0)
+"""
 # initialise the RobotModel class
-LeggedRobot = RobotModel(urdf_path, "FL_foot_fixed", "FR_foot_fixed", "RL_foot_fixed", "RR_foot_fixed", "gripper_bar", "FL_calf_joint", "FR_calf_joint", "RL_calf_joint", "RR_calf_joint", "gripper", "waist", "imu_joint")
+EE_frame_names = ["FL_foot_fixed", "FR_foot_fixed", "RL_foot_fixed", "RR_foot_fixed", "gripper_bar"]
+EE_joint_names = ["FL_calf_joint", "FR_calf_joint", "RL_calf_joint", "RR_calf_joint", "gripper"]
+#LeggedRobot = RobotModel(urdf_path, "FL_foot_fixed", "FR_foot_fixed", "RL_foot_fixed", "RR_foot_fixed", "gripper_bar", "FL_calf_joint", "FR_calf_joint", "RL_calf_joint", "RR_calf_joint", "gripper", "waist", "imu_joint")
+LeggedRobot = RobotModel(urdf_path, EE_frame_names, EE_joint_names, "waist", "imu_joint", "FR_hip_joint")
 print(LeggedRobot.current_joint_config)
 
 # Initialising lists
@@ -47,18 +55,19 @@ for j in range(p.getNumJoints(LeggedRobot_bullet)):
             jointIds.append(j)
 
 # Simulation camera settings
-p.getCameraImage(580,320)
-p.resetDebugVisualizerCamera(1.0,1.25,-19.8,[0.07,0.1,0.07])
+p.getCameraImage(1000,1000)
+#p.resetDebugVisualizerCamera(1.0,1.25,-19.8,[0.07,0.1,0.07])
+p.resetDebugVisualizerCamera(1.00,63.65,-31.4,[0.04,0.03,0.13])
 p.setRealTimeSimulation(0)
 
 # setting objectives
-EE_pos_FL = np.array([LeggedRobot.robot_data.oMf[11].translation]).T #np.array([[0.174, -0.142, -0.32]]).T
-EE_pos_FR = np.array([LeggedRobot.robot_data.oMf[19].translation]).T #np.array([[0.163, 0.144, -0.32]]).T
-EE_pos_RL = np.array([LeggedRobot.robot_data.oMf[27].translation]).T #np.array([[-0.196, -0.148, -0.32]]).T
-EE_pos_RR = np.array([LeggedRobot.robot_data.oMf[35].translation]).T #np.array([[-0.203, 0.148, -0.32]]).T
-EE_pos_GRIP = np.array([LeggedRobot.robot_data.oMf[53].translation]).T #np.array([[0.202, 0., 0.227]]).T #base: 0.252 0. 0.207 reach 0.5 0 -0.15
+EE_pos_FL = np.array([LeggedRobot.robot_data.oMf[LeggedRobot.end_effector_index_list_frame[0]].translation]).T #np.array([[0.174, -0.142, -0.32]]).T
+EE_pos_FR = np.array([LeggedRobot.robot_data.oMf[LeggedRobot.end_effector_index_list_frame[1]].translation]).T #np.array([[0.163, 0.144, -0.32]]).T
+EE_pos_RL = np.array([LeggedRobot.robot_data.oMf[LeggedRobot.end_effector_index_list_frame[2]].translation]).T #np.array([[-0.196, -0.148, -0.32]]).T
+EE_pos_RR = np.array([LeggedRobot.robot_data.oMf[LeggedRobot.end_effector_index_list_frame[3]].translation]).T #np.array([[-0.203, 0.148, -0.32]]).T
+EE_pos_GRIP = np.array([LeggedRobot.robot_data.oMf[LeggedRobot.end_effector_index_list_frame[4]].translation]).T #np.array([[0.202, 0., 0.227]]).T #base: 0.252 0. 0.207 reach 0.5 0 -0.15
 EE_vel = np.array([[0,0,0,0,0,0]]).T
-Trunk_target_pos = np.array([LeggedRobot.robot_data.oMf[63].translation]).T # 0.013 0.002 0.001
+Trunk_target_pos = np.array([LeggedRobot.robot_data.oMf[LeggedRobot.trunk_frame_index].translation]).T # 0.013 0.002 0.001
 Trunk_target_vel = np.array([[0,0,0,0,0,0]]).T
 EE_target_pos = [EE_pos_FL, EE_pos_FR, EE_pos_RL, EE_pos_RR, EE_pos_GRIP]
 EE_target_vel = [EE_vel, EE_vel, EE_vel, EE_vel, EE_vel]
@@ -99,7 +108,7 @@ while (1):
     imu_state = p.getLinkState(LeggedRobot_bullet, 0)
     base_config = np.concatenate((LeggedRobot.current_joint_config[:3], np.array(imu_state[5])), axis=0)
     print(base_config)
-    LeggedRobot.updateState(joints_py, base_config)
+    #LeggedRobot.updateState(joints_py, base_config)
 
     # get CoM position
     base_pos = imu_state[0]
@@ -115,12 +124,13 @@ while (1):
     current_gripper_pos = LeggedRobot.robot_data.oMf[53].translation
     print(current_gripper_pos)
     gripper_displacement = np.array([0.4, 0.02, -0.15])
-    milestones = [current_gripper_pos.tolist(), [0.4, 0., 0.24], [0.4, -0.3, 0.24], [-0.2, -0.3, 0.24], [-0.2, -0.3, -0.04], [0.4, -0.3, -0.04], [0.4, 0.3, -0.04], [-0.2, 0.3, -0.04], [-0.2, 0.3, 0.24],[0.4, 0.3, 0.24], [0.4, 0, 0.24]]
+    milestones = [current_gripper_pos.tolist(), [0.4, 0., 0.24], [0.4, -0.3, 0.24], [-0.1, -0.3, 0.24], [-0.1, -0.3, -0.01], [0.4, -0.3, -0.01], [0.4, 0.3, -0.01], [-0.1, 0.3, -0.01], [-0.1, 0.3, 0.24],[0.4, 0.3, 0.24], [0.4, 0, 0.24]]
+    #milestones = [current_gripper_pos.tolist(), [0.25, 0., 0.21], [0.25, -0.18, 0.21], [-0.06, -0.18, 0.21], [-0.06, -0.18, 0.1], [0.25, -0.18, 0.1], [0.25, 0.18, 0.1], [-0.06, 0.18, 0.1], [-0.06, 0.18, 0.21],[0.25, 0.18, 0.21], [0.25, 0, 0.21]]
     #milestones = [current_gripper_pos.tolist(), np.add(current_gripper_pos, np.array([0.1, 0, 0])).tolist()]
     traj = trajectory.Trajectory(milestones=milestones)
     traj2 = trajectory.HermiteTrajectory()
     traj2.makeSpline(traj)  
-    traj_interval = np.arange(0,len(milestones),0.0003).tolist()
+    traj_interval = np.arange(0,len(milestones),0.0005).tolist()
 
     # plot desired trajectory
     previouse_traj_point = np.add(traj2.eval(0), base_pos).tolist()
@@ -160,7 +170,7 @@ while (1):
         A = LeggedRobot.qpCartesianA()
         b = LeggedRobot.qpCartesianB(planner_pos[0], planner_vel[0], EE_target_pos, EE_target_vel, Trunk_target_pos, Trunk_target_vel).reshape((39,))
         # Solve QP
-        qp = QP(A, b, lb, ub)
+        qp = QP(A, b, lb, ub, LeggedRobot.n_velocity_dimensions)
         q_vel = qp.solveQP()
 
         # Find the new joint angles and update the robot model (pinocchio model)
@@ -193,10 +203,6 @@ while (1):
         #p.addUserDebugLine(previouse_com_pos, current_com_pos, lineColorRGB=[255,0,0], lineWidth=10, lifeTime=0, parentObjectUniqueId=100)
 
         previouse_com_pos = current_com_pos
-        
-        #if target reached exit
-        if np.array_equal(LeggedRobot.robot_data.oMf[57].translation, EE_pos_GRIP.T.reshape(3,)):
-            break
 
         p.stepSimulation()
         time.sleep(1./500)
