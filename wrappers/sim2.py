@@ -60,6 +60,9 @@ p.getCameraImage(1000,1000)
 p.resetDebugVisualizerCamera(1.00,63.65,-31.4,[0.04,0.03,0.13])
 p.setRealTimeSimulation(0)
 
+# select the tasks that are active
+LeggedRobot.setTasks(EE=True, CoM=False, Trunk=True)
+
 # setting objectives
 EE_pos_FL = np.array([LeggedRobot.robot_data.oMf[LeggedRobot.end_effector_index_list_frame[0]].translation]).T #np.array([[0.174, -0.142, -0.32]]).T
 EE_pos_FR = np.array([LeggedRobot.robot_data.oMf[LeggedRobot.end_effector_index_list_frame[1]].translation]).T #np.array([[0.163, 0.144, -0.32]]).T
@@ -152,49 +155,22 @@ while (1):
         
         maxForce = p.readUserDebugParameter(maxForceId)
 
-        # Fetch and combine joint position and velocity limits
-        lower_vel_lim, upper_vel_lim = LeggedRobot.jointVelLimitsArray()
-        lower_pos_lim, upper_pos_lim = LeggedRobot.jointPosLimitsArray()
-        lb = np.concatenate((lower_vel_lim.T, lower_pos_lim), axis=0).reshape(((LeggedRobot.n_velocity_dimensions*2),))
-        ub = np.concatenate((upper_vel_lim.T, upper_pos_lim), axis=0).reshape(((LeggedRobot.n_velocity_dimensions*2),))
-        #lb = lower_pos_lim.reshape((26,))
-        #ub = upper_pos_lim.reshape((26,))
-        #lb = lower_vel_lim.reshape((26,))
-        #ub = upper_vel_lim.reshape((26,))
-        
         # Find new gripper position
         EE_pos_GRIP = np.array([traj2.eval(i)]).T
         EE_target_pos[4] = EE_pos_GRIP
-        #print(EE_target_pos)
-        # Fetch the new A and b for QP
-        A = LeggedRobot.qpCartesianA()
-        b = LeggedRobot.qpCartesianB(planner_pos[0], planner_vel[0], EE_target_pos, EE_target_vel, Trunk_target_pos, Trunk_target_vel).reshape((39,))
-        # Solve QP
-        qp = QP(A, b, lb, ub, LeggedRobot.n_velocity_dimensions)
-        q_vel = qp.solveQP()
-
-        # Find the new joint angles and update the robot model (pinocchio model)
-        joint_config = LeggedRobot.jointVelocitiestoConfig(q_vel, False)[7:]
-
-        #com_target_pos = np.array([LeggedRobot.robot_data.com[0]]).T
-        
-        for ii in range(len(joints_py)):
-            p.setJointMotorControl2(LeggedRobot_bullet, jointIds[ii], p.POSITION_CONTROL, joint_config[ii], force=maxForce)
-
-        # reset current joint configuration list
-        joints_py_current = []
-        
-        # get curret joint configuration for feedback loop
-        for i in range(len(jointIds)):
-            joints_py_current.append(p.getJointStates(LeggedRobot_bullet, jointIds)[i][0])
-       
-        # convert list into array
-        joints_py_feedback = np.array(joints_py_current)
 
         # fetch the IMU data for potision and orientation in the world frame
         imu_state = p.getLinkState(LeggedRobot_bullet, 0)
         base_config = np.concatenate((LeggedRobot.current_joint_config[:3], np.array(imu_state[5])), axis=0)
-        LeggedRobot.updateState(joint_config, base_config)
+
+        #st = time.time()
+        # run the WBC to solve for the new joint configurations
+        joint_config = LeggedRobot.runWBC(base_config, target_cartesian_pos_CoM=planner_pos[0], target_cartesian_vel_CoM=planner_vel[0], target_cartesian_pos_EE=EE_target_pos, target_cartesian_vel_EE=EE_target_vel, target_cartesian_pos_trunk=Trunk_target_pos, target_cartesian_vel_trunk=Trunk_target_vel)
+        #print(time.time()-st)
+
+        # update simulation with new joint configurations
+        for ii in range(len(joints_py)):
+            p.setJointMotorControl2(LeggedRobot_bullet, jointIds[ii], p.POSITION_CONTROL, joint_config[ii], force=maxForce)
 
         # visually track the CoM
         base_pos = imu_state[0]

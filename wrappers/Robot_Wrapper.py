@@ -48,16 +48,21 @@ class RobotModel:
         # cartesian task weights
         self.com_weight = np.identity(3) * 20 # 20#1.2
         self.trunk_weight = np.identity(6) * 15 #15#1
-        self.FR_weight = np.identity(6) * 20 #20#0.8
-        self.FL_weight = np.identity(6) * 20 #20#0.8
-        self.RR_weight = np.identity(6) * 20 #20#0.8
-        self.RL_weight = np.identity(6) * 20 #20#0.8
+        self.FR_weight = np.identity(6) * 20 #20#0.8 18 for wx100
+        self.FL_weight = np.identity(6) * 20 #20#0.8 18 for wx100
+        self.RR_weight = np.identity(6) * 20 #20#0.8 18 for wx100
+        self.RL_weight = np.identity(6) * 20 #20#0.8 18 for wx100
         self.grip_weight = np.identity(6) * 15 #15#1
         self.EE_weight = [self.FR_weight, self.FL_weight, self.RR_weight, self.RL_weight, self.grip_weight]
 
+        # identify which tasks are active
+        self.taskActiveEE = False
+        self.taskActiveCoM = False
+        self.taskActiveTrunk = False
+
         # cartesian proportional gains
         self.com_gain = np.identity(3)* 1.5 #1.5#1.631
-        self.trunk_gain = np.identity(6)* 0.2 #0.5425
+        self.trunk_gain = np.identity(6)* 0.2#0.5425
         self.EE_gain = np.identity(6)*3#1.458
         
         #self.neutralConfig()
@@ -77,10 +82,15 @@ class RobotModel:
         self.IMU_setpoint = self.current_joint_config[:7]
         self.IMU_PID = PID(self.IMU_Kp, self.sampling_time, self.IMU_setpoint, self.IMU_Ki, self.IMU_Kd)
 
+    def setTasks(self, EE=False, CoM=False, Trunk=False):
+        self.taskActiveEE = EE
+        self.taskActiveCoM = CoM
+        self.taskActiveTrunk = Trunk
+
 
     def setInitialState(self):
         
-        # seta neutral configuration
+        # set a neutral configuration
         q = pin.neutral(self.robot_model)
         print(q.shape)
         self.updateState(q, feedback=False)
@@ -106,8 +116,10 @@ class RobotModel:
         multiplier_R = np.identity(3)
         multiplier_G = np.identity(3)
         multiplier_F[2,2] = 0.65 #0.65
+        #multiplier_F[0,0] = 0.65
         multiplier_R[2,2] = 0.65 #0.65
-        multiplier_G[2,2] = 2.8 #0.7
+        #multiplier_R[0,0] = 1.35
+        multiplier_G[2,2] = 2.8#2.8 #0.7
 
         EE_G_pos_2 = EE_pos_GRIP.reshape((3,)).tolist()
         print(EE_G_pos_2)
@@ -128,7 +140,9 @@ class RobotModel:
         EE_RR_traj = trajectory.Trajectory(milestones=EE_RR_milestones)
         EE_G_traj = trajectory.Trajectory(milestones=EE_G_milestones)
         EE_traj = [EE_FL_traj, EE_FR_traj, EE_RL_traj, EE_RR_traj, EE_G_traj]
-        
+
+        # select the tasks that are active
+        self.setTasks(EE=True, CoM=True, Trunk=True)
         
         # set the trajectory interval
         trajectory_interval = np.arange(0,len(EE_FL_milestones), 0.001).tolist()
@@ -149,7 +163,7 @@ class RobotModel:
 
             # find A and b for QP
             A = self.qpCartesianA()
-            b = self.qpCartesianB(com_pos, com_vel, EE_target_pos, EE_target_vel, Trunk_target_pos, Trunk_target_vel).reshape((39,))
+            b = self.qpCartesianB(com_pos, com_vel, EE_target_pos, EE_target_vel, Trunk_target_pos, Trunk_target_vel).reshape((A.shape[0],))
             # solver QP
             qp = QP(A, b, lb, ub, self.n_velocity_dimensions)
             qp_vel = qp.solveQP()
@@ -259,11 +273,35 @@ class RobotModel:
         return J
 
     def qpCartesianA(self):
-        self.comJacobian()
-        self.EndEffectorJacobians()
-        self.TrunkJacobian()
+
+        # this list will contain the jacobians from active tasks
+        jacobian_list = []
+
+        # find the jacobains for the active tasks
+        if self.taskActiveEE == True:
+            self.EndEffectorJacobians()
+            jacobian_list.append(self.end_effector_jacobians)
+
+        if self.taskActiveCoM == True:
+            self.comJacobian()
+            jacobian_list.append(self.comJ)
+
+        if self.taskActiveTrunk == True:
+            self.TrunkJacobian()
+            jacobian_list.append(self.trunkJ)
+
+        """
         A = np.concatenate((self.end_effector_jacobians, self.comJ), axis=0)
         A = np.concatenate((A, self.trunkJ), axis=0)
+        """
+
+        # combine all jacobians to find A
+        for i in range(len(jacobian_list)):
+            if i == 0:
+                A = jacobian_list[i]
+            else:
+                A = np.concatenate((A, jacobian_list[i]), axis=0)
+        
         return A
 
     def cartesianTargetsEE(self, target_cartesian_pos, target_cartesian_vel):
@@ -324,15 +362,61 @@ class RobotModel:
         return planner_pos, planner_vel
         
     def qpCartesianB(self, target_cartesian_pos_CoM, target_cartesian_vel_CoM, target_cartesian_pos_EE, target_cartesian_vel_EE, target_cartesian_pos_trunk, target_cartesian_vel_trunk):
-        self.cartesianTargetCoM(target_cartesian_pos_CoM, target_cartesian_vel_CoM)
-        self.cartesianTargetsEE(target_cartesian_pos_EE, target_cartesian_vel_EE)
-        self.cartesianTargetTrunk(target_cartesian_pos_trunk, target_cartesian_vel_trunk)
+        # this list will contain the targets from active tasks
+        target_list = []
+
+        # for the active tasks find their targets
+        if self.taskActiveEE == True:
+            self.cartesianTargetsEE(target_cartesian_pos_EE, target_cartesian_vel_EE)
+            target_list.append(self.cartesian_targetsEE)
+
+        if self.taskActiveCoM == True:
+            self.cartesianTargetCoM(target_cartesian_pos_CoM, target_cartesian_vel_CoM)
+            target_list.append(self.cartesian_targetsCoM)
+
+        if self.taskActiveTrunk == True:
+            self.cartesianTargetTrunk(target_cartesian_pos_trunk, target_cartesian_vel_trunk)
+            target_list.append(self.cartesian_targetsTrunk)
+
+        # combine all targets to find b
+        for i in range(len(target_list)):
+            if i == 0:
+                b = target_list[i]
+            else:
+                b = np.concatenate((b, target_list[i]), axis=0)
+
+        """
         b = np.concatenate((self.cartesian_targetsEE ,self.cartesian_targetsCoM), axis=0)
         b = np.concatenate((b, self.cartesian_targetsTrunk), axis=0)
+        """
+
         return b
 
-    #Initial Configuration
-    #def InitialConfig(self):
+
+    def runWBC(self, base_config, target_cartesian_pos_CoM=None, target_cartesian_vel_CoM=None, target_cartesian_pos_EE=None, target_cartesian_vel_EE=None, target_cartesian_pos_trunk=None, target_cartesian_vel_trunk=None):
+        # find joint position and velocity limits
+        lower_vel_lim, upper_vel_lim = self.jointVelLimitsArray()
+        lower_pos_lim, upper_pos_lim = self.jointPosLimitsArray()
+        lb = np.concatenate((lower_vel_lim.T, lower_pos_lim), axis=0).reshape(((self.n_velocity_dimensions*2),))
+        ub = np.concatenate((upper_vel_lim.T, upper_pos_lim), axis=0).reshape(((self.n_velocity_dimensions*2),))
+
+        # find cartesian tasks (A and b)
+        A = self.qpCartesianA()
+        #print(A.shape)
+        b = self.qpCartesianB(target_cartesian_pos_CoM, target_cartesian_vel_CoM, target_cartesian_pos_EE, target_cartesian_vel_EE, target_cartesian_pos_trunk, target_cartesian_vel_trunk).reshape((A.shape[0],))
+        
+        # solve qp
+        qp = QP(A, b, lb, ub, self.n_velocity_dimensions)
+        q_vel = qp.solveQP()
+
+        # find the new joint angles from the solved joint velocities
+        joint_config = self.jointVelocitiestoConfig(q_vel, False)[7:]
+
+        # update robot model with new joint and base configuration
+        self.updateState(joint_config, base_config)
+
+        # return the new joint configuration
+        return joint_config        
         
 
     #Debugging functions
