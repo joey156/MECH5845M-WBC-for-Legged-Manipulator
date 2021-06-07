@@ -61,7 +61,7 @@ p.resetDebugVisualizerCamera(1.00,63.65,-31.4,[0.04,0.03,0.13])
 p.setRealTimeSimulation(0)
 
 # select the tasks that are active
-LeggedRobot.setTasks(EE=True, CoM=False, Trunk=True)
+LeggedRobot.setTasks(EE=True, CoM=False, Trunk=True, Joint="PREV")
 
 # setting objectives
 EE_pos_FL = np.array([LeggedRobot.robot_data.oMf[LeggedRobot.end_effector_index_list_frame[0]].translation]).T #np.array([[0.174, -0.142, -0.32]]).T

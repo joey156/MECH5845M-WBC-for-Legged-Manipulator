@@ -45,6 +45,9 @@ class RobotModel:
         self.sampling_time = 0.002 #in seconds (2ms)
         self.trunk_frame_index= self.robot_model.getFrameId(imu, pin.FIXED_JOINT)
 
+        # find joint task parameters
+        self.jointTaskA = self.qpJointA()
+
         # cartesian task weights
         self.com_weight = np.identity(3) * 20 # 20#1.2
         self.trunk_weight = np.identity(6) * 15 #15#1
@@ -55,10 +58,15 @@ class RobotModel:
         self.grip_weight = np.identity(6) * 15 #15#1
         self.EE_weight = [self.FR_weight, self.FL_weight, self.RR_weight, self.RL_weight, self.grip_weight]
 
+        # task weights
+        self.taskWeightCart = 1
+        self.taskWeightJoint = 1
+
         # identify which tasks are active
         self.taskActiveEE = False
         self.taskActiveCoM = False
         self.taskActiveTrunk = False
+        self.taskActiveJoint = False
 
         # cartesian proportional gains
         self.com_gain = np.identity(3)* 1.5 #1.5#1.631
@@ -82,10 +90,11 @@ class RobotModel:
         self.IMU_setpoint = self.current_joint_config[:7]
         self.IMU_PID = PID(self.IMU_Kp, self.sampling_time, self.IMU_setpoint, self.IMU_Ki, self.IMU_Kd)
 
-    def setTasks(self, EE=False, CoM=False, Trunk=False):
+    def setTasks(self, EE=False, CoM=False, Trunk=False, Joint=False):
         self.taskActiveEE = EE
         self.taskActiveCoM = CoM
         self.taskActiveTrunk = Trunk
+        self.taskActiveJoint = Joint
 
 
     def setInitialState(self):
@@ -142,7 +151,7 @@ class RobotModel:
         EE_traj = [EE_FL_traj, EE_FR_traj, EE_RL_traj, EE_RR_traj, EE_G_traj]
 
         # select the tasks that are active
-        self.setTasks(EE=True, CoM=True, Trunk=True)
+        self.setTasks(EE=True, CoM=True, Trunk=True, Joint=True)
         
         # set the trajectory interval
         trajectory_interval = np.arange(0,len(EE_FL_milestones), 0.001).tolist()
@@ -162,8 +171,8 @@ class RobotModel:
             ub = np.concatenate((upper_vel_lim.T, upper_pos_lim), axis=0).reshape(((self.n_velocity_dimensions*2),))
 
             # find A and b for QP
-            A = self.qpCartesianA()
-            b = self.qpCartesianB(com_pos, com_vel, EE_target_pos, EE_target_vel, Trunk_target_pos, Trunk_target_vel).reshape((A.shape[0],))
+            A = self.qpA()
+            b = self.qpb(com_pos, com_vel, EE_target_pos, EE_target_vel, Trunk_target_pos, Trunk_target_vel).reshape((A.shape[0],))
             # solver QP
             qp = QP(A, b, lb, ub, self.n_velocity_dimensions)
             qp_vel = qp.solveQP()
@@ -222,6 +231,7 @@ class RobotModel:
                 J = np.transpose(pin.getFrameJacobian(self.robot_model, self.robot_data, self.end_effector_index_list_frame[i+1], pin.LOCAL_WORLD_ALIGNED))
             J = np.dot(J, self.EE_weight[i+1])
             self.end_effector_jacobians = np.concatenate((self.end_effector_jacobians, J), axis = 1)
+
         self.end_effector_jacobians = np.transpose(self.end_effector_jacobians)
 
     def TrunkJacobian(self):
@@ -393,6 +403,55 @@ class RobotModel:
         return b
 
 
+    def qpJointA(self):
+
+        U = np.identity(self.n_velocity_dimensions)
+        a = np.ones(self.n_velocity_dimensions)*(1/self.n_velocity_dimensions)
+        A = U*a
+
+        return A
+
+
+    def qpJointb(self):
+
+        # Tikhonov Regularization (default
+        if self.taskActiveJoint == True:
+            u = np.zeros((self.n_velocity_dimensions, 1))
+
+        # eleminate high frequency oscillations
+        if self.taskActiveJoint == "PREV":
+            u = np.delete(self.current_joint_config, 6).reshape((self.n_velocity_dimensions, 1))
+
+        a = np.ones((self.n_velocity_dimensions, 1))*(1/self.n_velocity_dimensions)
+
+        b = a*u
+
+        return b
+
+
+
+    def qpA(self):
+
+        A = self.qpCartesianA() * self.taskWeightCart
+
+        if self.taskActiveJoint == True or self.taskActiveJoint == "PREV":
+            A = np.concatenate((A, (self.jointTaskA * self.taskWeightJoint)), axis=0)
+
+        return A
+
+
+    def qpb(self, target_cartesian_pos_CoM, target_cartesian_vel_CoM, target_cartesian_pos_EE, target_cartesian_vel_EE, target_cartesian_pos_trunk, target_cartesian_vel_trunk):
+        
+        b = self.qpCartesianB(target_cartesian_pos_CoM, target_cartesian_vel_CoM, target_cartesian_pos_EE, target_cartesian_vel_EE, target_cartesian_pos_trunk, target_cartesian_vel_trunk)
+        b = b * self.taskWeightJoint
+        
+        if self.taskActiveJoint == True or self.taskActiveJoint == "PREV":
+
+            b = np.concatenate((b, (self.qpJointb() * self.taskWeightJoint)), axis=0)
+            
+        return b
+
+
     def runWBC(self, base_config, target_cartesian_pos_CoM=None, target_cartesian_vel_CoM=None, target_cartesian_pos_EE=None, target_cartesian_vel_EE=None, target_cartesian_pos_trunk=None, target_cartesian_vel_trunk=None):
         # find joint position and velocity limits
         lower_vel_lim, upper_vel_lim = self.jointVelLimitsArray()
@@ -401,10 +460,9 @@ class RobotModel:
         ub = np.concatenate((upper_vel_lim.T, upper_pos_lim), axis=0).reshape(((self.n_velocity_dimensions*2),))
 
         # find cartesian tasks (A and b)
-        A = self.qpCartesianA()
-        #print(A.shape)
-        b = self.qpCartesianB(target_cartesian_pos_CoM, target_cartesian_vel_CoM, target_cartesian_pos_EE, target_cartesian_vel_EE, target_cartesian_pos_trunk, target_cartesian_vel_trunk).reshape((A.shape[0],))
-        
+        A = self.qpA()
+        b = self.qpb(target_cartesian_pos_CoM, target_cartesian_vel_CoM, target_cartesian_pos_EE, target_cartesian_vel_EE, target_cartesian_pos_trunk, target_cartesian_vel_trunk).reshape((A.shape[0],))
+
         # solve qp
         qp = QP(A, b, lb, ub, self.n_velocity_dimensions)
         q_vel = qp.solveQP()
