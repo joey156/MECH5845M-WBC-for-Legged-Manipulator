@@ -12,13 +12,13 @@ plane = p.loadURDF("/home/joey156/Disso_ws/MECH5845M-WBC-for-Legged-Manipulator/
 p.setGravity(0,0,-9.8)
 p.setTimeStep(1./500)
 urdfFlags = p.URDF_USE_SELF_COLLISION
-urdf_path = "/home/joey156/Disso_ws/MECH5845M-WBC-for-Legged-Manipulator/Robot_Descriptions/urdf/a1_wx200.urdf"
-#urdf_path = "/home/joey156/Disso_ws/MECH5845M-WBC-for-Legged-Manipulator/Robot_Descriptions/urdf/a1_px100_pin_ver.urdf"
+#urdf_path = "/home/joey156/Disso_ws/MECH5845M-WBC-for-Legged-Manipulator/Robot_Descriptions/urdf/a1_wx200.urdf"
+urdf_path = "/home/joey156/Disso_ws/MECH5845M-WBC-for-Legged-Manipulator/Robot_Descriptions/urdf/a1_px100_pin_ver.urdf"
 # load the legged robot urdf
 LeggedRobot_bullet = p.loadURDF(urdf_path,[0,0,0.43],[0,0,0,1], flags=urdfFlags, useFixedBase=False)
 
 # Removing the collision pairs between the two gripper fingers and the bar they are attached to
-
+"""
 p.setCollisionFilterPair(LeggedRobot_bullet, LeggedRobot_bullet, 28, 29, 0)
 p.setCollisionFilterPair(LeggedRobot_bullet, LeggedRobot_bullet, 26, 28, 0)
 p.setCollisionFilterPair(LeggedRobot_bullet, LeggedRobot_bullet, 26, 29, 0)
@@ -26,7 +26,7 @@ p.setCollisionFilterPair(LeggedRobot_bullet, LeggedRobot_bullet, 26, 29, 0)
 p.setCollisionFilterPair(LeggedRobot_bullet, LeggedRobot_bullet, 27, 28, 0)
 p.setCollisionFilterPair(LeggedRobot_bullet, LeggedRobot_bullet, 25, 27, 0)
 p.setCollisionFilterPair(LeggedRobot_bullet, LeggedRobot_bullet, 25, 28, 0)
-"""
+
 # initialise the RobotModel class
 EE_frame_names = ["FL_foot_fixed", "FR_foot_fixed", "RL_foot_fixed", "RR_foot_fixed", "gripper_bar"]
 EE_joint_names = ["FL_calf_joint", "FR_calf_joint", "RL_calf_joint", "RR_calf_joint", "gripper"]
@@ -58,7 +58,7 @@ for j in range(p.getNumJoints(LeggedRobot_bullet)):
 p.getCameraImage(1000,1000)
 #p.resetDebugVisualizerCamera(1.0,1.25,-19.8,[0.07,0.1,0.07])
 p.resetDebugVisualizerCamera(1.00,63.65,-31.4,[0.04,0.03,0.13])
-p.setRealTimeSimulation(0)
+p.setRealTimeSimulation(1)
 
 # select the tasks that are active
 LeggedRobot.setTasks(EE=True, CoM=False, Trunk=True, Joint="PREV")
@@ -83,7 +83,7 @@ while (1):
     maxForce = p.readUserDebugParameter(maxForceId)
     
     joints_py = LeggedRobot.current_joint_config[7:]
-    print(joints_py)
+    print("joints_py", joints_py)
 
     for i in range(len(joints_py)):
         p.setJointMotorControl2(LeggedRobot_bullet, jointIds[i], p.POSITION_CONTROL, joints_py[i], force=maxForce)
@@ -127,13 +127,13 @@ while (1):
     current_gripper_pos = LeggedRobot.robot_data.oMf[53].translation
     print(current_gripper_pos)
     gripper_displacement = np.array([0.4, 0.02, -0.15])
-    milestones = [current_gripper_pos.tolist(), [0.4, 0., 0.24], [0.4, -0.3, 0.24], [-0.1, -0.3, 0.24], [-0.1, -0.3, -0.01], [0.4, -0.3, -0.01], [0.4, 0.3, -0.01], [-0.1, 0.3, -0.01], [-0.1, 0.3, 0.24],[0.4, 0.3, 0.24], [0.4, 0, 0.24]]
-    #milestones = [current_gripper_pos.tolist(), [0.25, 0., 0.21], [0.25, -0.18, 0.21], [-0.06, -0.18, 0.21], [-0.06, -0.18, 0.1], [0.25, -0.18, 0.1], [0.25, 0.18, 0.1], [-0.06, 0.18, 0.1], [-0.06, 0.18, 0.21],[0.25, 0.18, 0.21], [0.25, 0, 0.21]]
+    #milestones = [current_gripper_pos.tolist(), [0.4, 0., 0.24], [0.4, -0.3, 0.24], [-0.1, -0.3, 0.24], [-0.1, -0.3, -0.01], [0.4, -0.3, -0.01], [0.4, 0.3, -0.01], [-0.1, 0.3, -0.01], [-0.1, 0.3, 0.24],[0.4, 0.3, 0.24], [0.4, 0, 0.24]]
+    milestones = [current_gripper_pos.tolist(), [0.25, 0., 0.21], [0.25, -0.17, 0.21], [-0.06, -0.17, 0.21], [-0.06, -0.19, 0.1], [0.3, -0.19, 0.1], [0.3, 0.18, 0.1], [-0.06, 0.18, 0.1], [-0.06, 0.18, 0.21],[0.25, 0.18, 0.21], [0.25, 0, 0.21]]
     #milestones = [current_gripper_pos.tolist(), np.add(current_gripper_pos, np.array([0.1, 0, 0])).tolist()]
     traj = trajectory.Trajectory(milestones=milestones)
     traj2 = trajectory.HermiteTrajectory()
     traj2.makeSpline(traj)  
-    traj_interval = np.arange(0,len(milestones),0.0005).tolist()
+    traj_interval = np.arange(0,len(milestones),0.001).tolist()
 
     # plot desired trajectory
     previouse_traj_point = np.add(traj2.eval(0), base_pos).tolist()
@@ -180,8 +180,8 @@ while (1):
 
         previouse_com_pos = current_com_pos
 
-        p.stepSimulation()
-        time.sleep(1./500)
+        #p.stepSimulation()
+        #time.sleep(1./500)
 
         #print(i)
 
