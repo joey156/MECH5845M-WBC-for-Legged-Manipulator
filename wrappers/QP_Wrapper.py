@@ -3,6 +3,7 @@ from qpoases import PyQProblemB as QProblemB
 from qpoases import PyBooleanType as BooleanType
 from qpoases import PySubjectToStatus as SubjectToStatus
 from qpoases import PyOptions as Options
+from qpoases import PyPrintLevel as PrintLevel
 
 class QP:
     def __init__(self, A, b, lb, ub, n_of_velocity_dimensions):
@@ -22,17 +23,21 @@ class QP:
         
         # set up options
         options = Options()
-        #options.setToMPC()
+        options.setToFast()
+        options.printLevel = PrintLevel.NONE
         options.enableFlippingBounds = BooleanType.FALSE
         #options.initialStatusBounds = SubjectToStatus.INACTIVE
-        options.numRefinementSteps = 1
+        options.numRefinementSteps = 100
 
         qp.setOptions(options)
+
+        
         
         #solve qp
         qp.init(self.H, self.g, self.lb, self.ub, self.nWSR)
 
         self.xOpt = np.zeros((self.no_solutions,))
         qp.getPrimalSolution(self.xOpt)
+
         return self.xOpt
     
