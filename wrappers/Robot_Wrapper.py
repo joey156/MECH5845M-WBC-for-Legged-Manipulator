@@ -51,16 +51,16 @@ class RobotModel:
 
         # cartesian task weights
         self.com_weight = np.identity(3) * 1 # 20#1.2
-        self.trunk_weight = np.identity(6) * 250 #15#1
-        self.FL_weight = np.identity(6) * 60 #20#0.8 18 for wx100
-        self.FR_weight = np.identity(6) * 60 #20#0.8 18 for wx100
-        self.RL_weight = np.identity(6) * 60 #20#0.8 18 for wx100
-        self.RR_weight = np.identity(6) * 60 #20#0.8 18 for wx100
-        self.grip_weight = np.identity(6) * 60 #15#1
+        self.trunk_weight = np.identity(6) * 300 #15#1
+        self.FL_weight = np.identity(6) * 40 #20#0.8 18 for wx100
+        self.FR_weight = np.identity(6) * 40 #20#0.8 18 for wx100
+        self.RL_weight = np.identity(6) * 40 #20#0.8 18 for wx100
+        self.RR_weight = np.identity(6) * 40 #20#0.8 18 for wx100
+        self.grip_weight = np.identity(6) * 30 #15#1
         self.EE_weight = [self.FL_weight, self.FR_weight, self.RL_weight, self.RR_weight, self.grip_weight]
 
         # task weights
-        self.taskWeightCart = 5
+        self.taskWeightCart = 6
         self.taskWeightJoint = 0.05
 
         # identify which tasks are active
@@ -76,17 +76,14 @@ class RobotModel:
 
         # cartesian proportional gains
         self.com_gain = np.identity(3)* 1 #1.5#1.631
-        self.trunk_gain = np.identity(6)* 1.5 #0.5425
-        self.FL_gain = np.identity(6) * 1.5
-        self.FR_gain = np.identity(6) * 1.5
-        self.RL_gain = np.identity(6) * 1.5
-        self.RR_gain = np.identity(6) * 1.5
-        self.GRIP_gain = np.identity(6) * 0.5
+        self.trunk_gain = np.identity(6)* 0.001 #0.5425
+        self.FL_gain = np.identity(6) * 0.001
+        self.FR_gain = np.identity(6) * 0.001
+        self.RL_gain = np.identity(6) * 0.001
+        self.RR_gain = np.identity(6) * 0.001
+        self.GRIP_gain = np.identity(6) * 0.1
         self.EE_gains = [self.FL_gain, self.FR_gain, self.RL_gain, self.RR_gain, self.GRIP_gain]
         
-        
-        #self.neutralConfig()
-        #self.updateState(self.stand_joint_config, feedback=False)
         self.comJacobian()
         self.cartesian_targetsEE = 0
         self.cartesian_targetsCoM = 0
@@ -94,6 +91,8 @@ class RobotModel:
         self.cartesian_targetsTrunk = 0
         self.default_trunk_ori = np.array([[0,0,0]]).T
         self.default_EE_ori_list = [np.array([[0,0,0]]).T, np.array([[0,0,0]]).T, np.array([[0,0,0]]).T, np.array([[0,0,0]]).T, np.array([[0,0,0]]).T]
+        self.firstQP = True
+        self.qp = None
         self.setInitialState()
 
         
@@ -194,7 +193,7 @@ class RobotModel:
             b = self.qpb(com_pos, com_vel, EE_target_pos, EE_target_vel, Trunk_target_pos, Trunk_target_vel).reshape((A.shape[0],))
             #print(b)
             # solver QP
-            qp = QP(A, b, lb, ub, self.n_velocity_dimensions)
+            qp = QP(A, b, lb, ub, n_of_velocity_dimensions=self.n_velocity_dimensions)
             qp_vel = qp.solveQP()
 
             #print("EE_taget_pos: ", EE_target_pos[0].reshape((1,3)), EE_target_pos[1].reshape((1,3)), EE_target_pos[2].reshape((1,3)))
@@ -273,7 +272,7 @@ class RobotModel:
         
         for i in range(len(vel_lim)):
             if (np.isinf(vel_lim[i])):
-                vel_lim[i] = 10
+                vel_lim[i] = 100
             if i >= (self.end_effector_index_list_joint[4] - 2 + 6):
                 vel_lim[i] = 0
  
@@ -285,7 +284,7 @@ class RobotModel:
     def jointPosLimitsArray(self, initial_config=False): # returns an array for the upper and lower joint position limits, these have been turned into velocity limits
         for i in range(len(self.robot_model.lowerPositionLimit)):
             if np.isinf(self.robot_model.lowerPositionLimit[i]):
-                self.robot_model.lowerPositionLimit[i] = 10
+                self.robot_model.lowerPositionLimit[i] = 100
             if i >= (self.end_effector_index_list_joint[4] - 2 + 7):
                 self.robot_model.lowerPositionLimit[i] = 0
         
@@ -305,6 +304,22 @@ class RobotModel:
         upper_pos_lim = np.delete(upper_pos_lim, 0, 0)
         
         return lower_pos_lim, upper_pos_lim
+
+    def footConstraint(self):
+        C = pin.getFrameJacobian(self.robot_model, self.robot_data, self.end_effector_index_list_frame[0], pin.LOCAL_WORLD_ALIGNED)[:3]
+        fill = np.zeros((3, self.n_velocity_dimensions))
+        C = np.concatenate((C, fill), axis=0)
+        
+        for i in range(len(self.end_effector_index_list_frame)-2):
+            Jtmp = pin.getFrameJacobian(self.robot_model, self.robot_data, self.end_effector_index_list_frame[i+1], pin.LOCAL_WORLD_ALIGNED)[:3]
+            Jtmp = np.concatenate((Jtmp, fill), axis=0)
+            C = np.concatenate((C, Jtmp), axis=0)
+        C = np.concatenate((C, np.zeros((6, self.n_velocity_dimensions))), axis=0)
+        Clb = np.zeros(self.n_velocity_dimensions).reshape((self.n_velocity_dimensions,))
+        Cub = np.zeros(self.n_velocity_dimensions).reshape((self.n_velocity_dimensions,))
+        
+
+        return C.T, Clb, Cub
 
     def comJacobian(self):
         J = pin.jacobianCenterOfMass(self.robot_model, self.robot_data, self.current_joint_config)
@@ -414,6 +429,7 @@ class RobotModel:
         # calculate target end effector velocity
         #print("des_cart", des_cart)
         #print("fk_cart", fk_cart)
+
         target_vel = des_vel + np.dot(gain, (des_cart - fk_cart))
         #print("target_vel", target_vel)
 
@@ -476,6 +492,31 @@ class RobotModel:
         if self.taskActiveJoint == "PREV":
             u = np.delete(self.current_joint_config, 6).reshape((self.n_velocity_dimensions, 1))
 
+        # manipulability gradient to reduce singularity risk
+        if self.taskActiveJoint == "MANI":
+            u = []
+            q = np.copy(self.current_joint_config)
+            deltaq = 0.0002
+            
+            for i in range(self.n_velocity_dimensions):
+                if i < 6:
+                    joint_id = 1
+                else:
+                    joint_id = i + 1 - 5
+                    
+                q[i] = q[i] + deltaq
+                self.updateState(q, feedback=False)
+                J = pin.getJointJacobian(self.robot_model, self.robot_data, joint_id, pin.LOCAL_WORLD_ALIGNED)
+                f1 = math.sqrt(np.linalg.det(np.dot(J, J.T)))
+                q[i] = q[i] - (deltaq * 2)
+                self.updateState(q, feedback=False)
+                J = pin.getJointJacobian(self.robot_model, self.robot_data, joint_id, pin.LOCAL_WORLD_ALIGNED)
+                f2 = math.sqrt(np.linalg.det(np.dot(J, J.T)))
+                u.append(0.5*(f1-f2)/deltaq)
+
+            u = np.array(u).reshape((self.n_velocity_dimensions, 1))
+            self.updateState(self.current_joint_config, feedback=False)
+
         a = np.ones((self.n_velocity_dimensions, 1))*(1/self.n_velocity_dimensions)
 
         b = a*u
@@ -526,11 +567,16 @@ class RobotModel:
         A = self.qpA()
         b = self.qpb(target_cartesian_pos_CoM, target_cartesian_vel_CoM, target_cartesian_pos_EE, target_cartesian_vel_EE, target_cartesian_pos_trunk, target_cartesian_vel_trunk).reshape((A.shape[0],))
 
-        #print(b)
+        # find foot constraints
+        C, Clb, Cub = self.footConstraint()
+
         # solve qp
-        qp = QP(A, b, lb, ub, self.n_velocity_dimensions)
-        q_vel = qp.solveQP()
-        #print(q_vel)
+        if self.firstQP == True:
+            self.qp = QP(A, b, lb, ub, C, Clb, Cub, n_of_velocity_dimensions=self.n_velocity_dimensions)
+            q_vel = self.qp.solveQP()
+            self.firstQP = False
+        else:
+            q_vel = self.qp.solveQPHotstart(A, b, lb, ub, C, Clb, Cub)
 
         # find the new joint angles from the solved joint velocities
         joint_config = self.jointVelocitiestoConfig(q_vel, False)[7:]
