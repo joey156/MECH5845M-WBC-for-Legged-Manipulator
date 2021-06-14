@@ -8,7 +8,7 @@ from PID_Controller import PID
 
 large_width = 400
 np.set_printoptions(linewidth=large_width)
-np.set_printoptions(precision=3)
+np.set_printoptions(precision=5)
 np.set_printoptions(suppress=True)
 
 class RobotModel:
@@ -46,6 +46,8 @@ class RobotModel:
 
         self.trunk_frame_index= self.robot_model.getFrameId(imu, pin.FIXED_JOINT)
 
+        self.count = 0
+
         # find joint task parameters
         self.jointTaskA = self.qpJointA()
 
@@ -56,7 +58,7 @@ class RobotModel:
         self.FR_weight = np.identity(6) * 40 #20#0.8 18 for wx100
         self.RL_weight = np.identity(6) * 40 #20#0.8 18 for wx100
         self.RR_weight = np.identity(6) * 40 #20#0.8 18 for wx100
-        self.grip_weight = np.identity(6) * 30 #15#1
+        self.grip_weight = np.identity(6) * 50 #15#1
         self.EE_weight = [self.FL_weight, self.FR_weight, self.RL_weight, self.RR_weight, self.grip_weight]
 
         # task weights
@@ -93,9 +95,11 @@ class RobotModel:
         self.default_EE_ori_list = [np.array([[0,0,0]]).T, np.array([[0,0,0]]).T, np.array([[0,0,0]]).T, np.array([[0,0,0]]).T, np.array([[0,0,0]]).T]
         self.firstQP = True
         self.qp = None
+        self.FL_base_pos = self.robot_data.oMf[self.end_effector_index_list_frame[1]].translation
+        self.print_ = False
         self.setInitialState()
-
-        
+        self.print_ = True
+        self.FL_base_pos = np.copy(self.robot_data.oMf[self.end_effector_index_list_frame[1]].translation)
 
         # IMU PID controller gains
         self.IMU_Kp = 0.9
@@ -104,6 +108,7 @@ class RobotModel:
         # initialise IMU PID
         self.IMU_setpoint = self.current_joint_config[:7]
         self.IMU_PID = PID(self.IMU_Kp, self.sampling_time, self.IMU_setpoint, self.IMU_Ki, self.IMU_Kd)
+
 
     def setTasks(self, EE=False, CoM=False, Trunk=False, Joint=False):
         self.taskActiveEE = EE
@@ -263,7 +268,7 @@ class RobotModel:
         self.end_effector_jacobians = np.transpose(self.end_effector_jacobians)
 
     def TrunkJacobian(self):
-        J = pin.getFrameJacobian(self.robot_model, self.robot_data, self.trunk_frame_index, pin.WORLD)
+        J = pin.getFrameJacobian(self.robot_model, self.robot_data, self.trunk_frame_index, pin.LOCAL_WORLD_ALIGNED)
         self.trunkJ = np.dot(self.trunk_weight, J)
         
             
@@ -296,7 +301,7 @@ class RobotModel:
             
         lower_pos_lim = np.transpose(self.robot_model.lowerPositionLimit[np.newaxis])
         upper_pos_lim = np.transpose(self.robot_model.upperPositionLimit[np.newaxis])
-        K_lim = np.identity(self.n_configuration_dimensions)*2
+        K_lim = np.identity(self.n_configuration_dimensions)*0.5
         lower_pos_lim = np.dot(K_lim,(lower_pos_lim - np.transpose(self.current_joint_config[np.newaxis])))*(1/self.sampling_time)
         upper_pos_lim = np.dot(K_lim,(upper_pos_lim - np.transpose(self.current_joint_config[np.newaxis])))*(1/self.sampling_time)
 
@@ -315,12 +320,30 @@ class RobotModel:
             Jtmp = np.concatenate((Jtmp, fill), axis=0)
             C = np.concatenate((C, Jtmp), axis=0)
         C = np.concatenate((C, np.zeros((6, self.n_velocity_dimensions))), axis=0)
-        Clb = np.zeros(self.n_velocity_dimensions).reshape((self.n_velocity_dimensions,))
-        Cub = np.zeros(self.n_velocity_dimensions).reshape((self.n_velocity_dimensions,))
+        Clb = np.zeros(C.shape[0]).reshape((C.shape[0],))
+        Cub = np.zeros(C.shape[0]).reshape((C.shape[0],))
         
+        return C, Clb, Cub
+
+
+    def CoMConstraint(self):
+        C= pin.jacobianCenterOfMass(self.robot_model, self.robot_data, self.current_joint_config)[:2]
+        C = np.concatenate((C, np.zeros((1, self.n_velocity_dimensions))), axis=0)
+        Cub = self.robot_data.oMf[self.end_effector_index_list_frame[0]].translation.reshape((C.shape[0],)) # FL
+        Clb = self.robot_data.oMf[self.end_effector_index_list_frame[3]].translation.reshape((C.shape[0],)) # RR
+        return C, Clb, Cub
+
+    def findConstraints(self):
+        C, Clb, Cub = self.footConstraint()
+        D, Dlb, Dub = self.CoMConstraint()
+
+        C = np.concatenate((C, D), axis=0)
+        Clb = np.concatenate((Clb, Dlb), axis=0).reshape((C.shape[0],))
+        Cub = np.concatenate((Cub, Dub), axis=0).reshape((C.shape[0],))
 
         return C.T, Clb, Cub
 
+        
     def comJacobian(self):
         J = pin.jacobianCenterOfMass(self.robot_model, self.robot_data, self.current_joint_config)
         self.comJ = np.dot(self.com_weight, J)
@@ -412,33 +435,37 @@ class RobotModel:
         fk_pos = np.array([self.robot_data.oMf[frame_id].translation]).T
         fk_ori = np.array([self.robot_data.oMf[frame_id].rotation]).T
         fk_ori = self.Rot2Euler(fk_ori)
-        #fk_ori = np.array([[0,0,0]]).T
         fk_cart = np.concatenate((fk_pos, fk_ori), axis=0)
-
-        # calculate desired velocity
-        pos_vel = (target_pos - fk_pos) / self.dt
-        ori_vel = np.array([[0,0,0]]).T
-        des_vel = np.concatenate((pos_vel,ori_vel), axis=0)
-        #print("des_vel", des_vel)
+        #fk_cart = self.targetWorldToLocal(fk_cart)
 
         # find desired cartesian position
         des_cart = np.concatenate((target_pos, target_rot), axis=0)
-        #des_cart = np.concatenate((target_pos, np.array([[0,0,0]]).T), axis=0)
+        des_cart = self.targetWorldToLocal(des_cart)
+
+        # calculate desired velocity
+        pos_vel = (des_cart[:3] - fk_cart[:3]) / self.dt
+        ori_vel = np.array([[0,0,0]]).T
+        des_vel = np.concatenate((pos_vel,ori_vel), axis=0)
         
-
         # calculate target end effector velocity
-        #print("des_cart", des_cart)
-        #print("fk_cart", fk_cart)
-
         target_vel = des_vel + np.dot(gain, (des_cart - fk_cart))
-        #print("target_vel", target_vel)
 
-        #print(target_vel)
-        #target_vel[3] = 0
-        #target_vel[4] = 0
-        #target_vel[5] = 0
-        #print(self.dt)
         return target_vel
+
+    def targetWorldToLocal(self, world_target):
+        ori_offset = self.Rot2Euler(self.robot_data.oMf[3].rotation)
+        pos_offset = (self.robot_data.oMf[self.end_effector_index_list_frame[1]].translation - self.FL_base_pos).reshape(ori_offset.shape)
+        if self.print_ == True:
+            if self.count % 5 == 0:
+                x = 1
+                #print("new:", self.robot_data.oMf[self.end_effector_index_list_frame[1]].translation)
+                #print("old:", self.FL_base_pos)
+                #print(pos_offset.T)
+            self.count = self.count + 1
+        offset = np.vstack((pos_offset, ori_offset))
+        #print("pin offset:", offset.T)
+        local_target = world_target - offset
+        return local_target
 
         
     def qpCartesianB(self, target_cartesian_pos_CoM, target_cartesian_vel_CoM, target_cartesian_pos_EE, target_cartesian_vel_EE, target_cartesian_pos_trunk, target_cartesian_vel_trunk):
@@ -563,12 +590,15 @@ class RobotModel:
         lb = np.concatenate((lower_vel_lim.T, lower_pos_lim), axis=0).reshape(((self.n_velocity_dimensions*2),))
         ub = np.concatenate((upper_vel_lim.T, upper_pos_lim), axis=0).reshape(((self.n_velocity_dimensions*2),))
 
+        #print("lb:", lb)
+        #print("ub:", ub)
+
         # find cartesian tasks (A and b)
         A = self.qpA()
         b = self.qpb(target_cartesian_pos_CoM, target_cartesian_vel_CoM, target_cartesian_pos_EE, target_cartesian_vel_EE, target_cartesian_pos_trunk, target_cartesian_vel_trunk).reshape((A.shape[0],))
 
         # find foot constraints
-        C, Clb, Cub = self.footConstraint()
+        C, Clb, Cub = self.findConstraints()
 
         # solve qp
         if self.firstQP == True:
@@ -587,7 +617,14 @@ class RobotModel:
         self.updateState(joint_config, base_config)
 
         # return the new joint configuration
-        return joint_config        
+
+        FL_leg = joint_config[0:3]
+        FR_leg = joint_config[3:6]
+        RL_leg = joint_config[6:9]
+        RR_leg = joint_config[9:12]
+        grip = joint_config[12:]
+        
+        return FL_leg, FR_leg, RL_leg, RR_leg, grip       
         
 
     #Debugging functions

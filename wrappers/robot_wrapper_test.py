@@ -4,6 +4,8 @@ from Robot_Wrapper import RobotModel
 #from scipy.spatial.transform import Rotation as R
 import numpy as np
 import pinocchio as pin
+import math
+
 
 large_width = 400
 np.set_printoptions(linewidth=large_width)
@@ -11,10 +13,12 @@ np.set_printoptions(precision=3)
 np.set_printoptions(suppress=True)
 np.set_printoptions(threshold=1200)
 
-urdf = "/home/joey156/Disso_ws/MECH5845M-WBC-for-Legged-Manipulator/Robot_Descriptions/urdf/a1_wx200.urdf"
+urdf_path = "/home/joey156/Disso_ws/MECH5845M-WBC-for-Legged-Manipulator/Robot_Descriptions/urdf/a1_wx200.urdf"
 
-LeggedRobot = RobotModel(urdf)
-
+#urdf_path = "/home/joey156/Disso_ws/MECH5845M-WBC-for-Legged-Manipulator/Robot_Descriptions/urdf/a1_px100_pin_ver.urdf"
+EE_frame_names = ["FL_foot_fixed", "FR_foot_fixed", "RL_foot_fixed", "RR_foot_fixed", "gripper_bar"]
+EE_joint_names = ["FL_calf_joint", "FR_calf_joint", "RL_calf_joint", "RR_calf_joint", "gripper"]
+LeggedRobot = RobotModel(urdf_path, EE_frame_names, EE_joint_names, "waist", "imu_joint", "FR_hip_joint")
 #LeggedRobot.neutralConfig()
 
 
@@ -22,7 +26,7 @@ LeggedRobot.EndEffectorJacobians()
 #print(LeggedRobot.end_effector_jacobians)
 lower_pos_lim, upper_pos_lim = LeggedRobot.jointPosLimitsArray()
 lower_vel_lim, upper_vel_lim = LeggedRobot.jointVelLimitsArray()
-#print(lower_upper_lim)
+print(lower_vel_lim)
 #print("\n", lower_pos_lim.shape)
 x = LeggedRobot.robot_data.oMi[19].rotation
 x = np.array(x)
@@ -48,11 +52,23 @@ LeggedRobot.cartesianTargetsEE(EE_target_pos, EE_target_vel)
 #print(LeggedRobot.qpCartesianB(planner_pos[1], planner_vel[1], EE_target_pos, EE_target_vel))
 
 
+#Ji = pin.getFrameJacobian(LeggedRobot.robot_model, LeggedRobot.robot_data, 10, pin.LOCAL_WORLD_ALIGNED)
+
+#idet = np.linalg.det(np.dot(Ji, Ji.T))
+#isqrt = math.sqrt(idet)
+#diffr = np.ones((3,)) * isqrt
+#print(np.dot(Ji, Ji.T))
+#print(idet)
+#print(isqrt)
+#print(np.diff(diffr))
+
+#pin.pinocchio_pywrap.KinematicLevel
+
 
 #print(LeggedRobot.cartesian_targetsCoM)
 #print("success")
 #print("this")
-#print(LeggedRobot.robot_data.oMf[11].translation)
+#print(LeggedRobot.robot_data.oMi[].translation)
 #print(LeggedRobot.robot_data.oMf[19].translation)
 #print(LeggedRobot.robot_data.oMf[27].translation)
 #print(LeggedRobot.robot_data.oMf[35].translation)
@@ -60,20 +76,25 @@ LeggedRobot.cartesianTargetsEE(EE_target_pos, EE_target_vel)
 #planner_pos, planner_vel = LeggedRobot.posAndVelTargetsCoM(com_target_pos)
 #print(planner_vel[0])
 #.printJointCart()
-#print(LeggedRobot.robot_model.getJointId("floating_base"))
+print(LeggedRobot.robot_model.getJointId("FR_hip_joint"))
+print(LeggedRobot.robot_model.getJointId("FL_hip_joint"))
+print(LeggedRobot.robot_model.getJointId("RR_hip_joint"))
+print(LeggedRobot.robot_model.getJointId("RL_hip_joint"))
+
+
 #print(pin.getJointJacobian(LeggedRobot.robot_model, LeggedRobot.robot_data, 1, pin.LOCAL_WORLD_ALIGNED))
 
-print(LeggedRobot.robot_model.getFrameId("imu_joint", pin.FIXED_JOINT))
+#print(LeggedRobot.robot_model.getFrameId("imu_joint", pin.FIXED_JOINT))
 #print(pin.getFrameJacobian(LeggedRobot.robot_model, LeggedRobot.robot_data, 63, pin.LOCAL_WORLD_ALIGNED))
-#print(LeggedRobot.robot_model.getFrameId("RL_foot_fixed", pin.FIXED_JOINT))
+print(LeggedRobot.robot_model.getFrameId("floating_base", pin.JOINT))
 #print(LeggedRobot.robot_model.getFrameId("RR_foot_fixed", pin.FIXED_JOINT))
 #print(LeggedRobot.robot_model.getFrameId("ee_gripper", pin.FIXED_JOINT))
 #print(LeggedRobot.robot_model.getFrameId("gripper_bar", pin.FIXED_JOINT))
 #print(LeggedRobot.qpCartesianA())
 #print(LeggedRobot.comJ)
 
-A = LeggedRobot.qpCartesianA()
+#A = LeggedRobot.qpCartesianA()
 #print(A)
-print(LeggedRobot.robot_model.getJointId("waist"))
-print(len(LeggedRobot.robot_model.subtrees[14]))
-print(LeggedRobot.robot_model.nv)
+#print(LeggedRobot.robot_model.getJointId("waist"))
+#print(len(LeggedRobot.robot_model.subtrees[14]))
+#print(LeggedRobot.robot_model.nv)
