@@ -12,7 +12,7 @@ np.set_printoptions(precision=5)
 np.set_printoptions(suppress=True)
 
 class RobotModel:
-    def __init__(self, urdf_path, EE_frame_names, EE_joint_names, G_base, imu, FR_hip_joint):
+    def __init__(self, urdf_path, EE_frame_names, EE_joint_names, G_base, imu, FR_hip_joint, hip_joint_names):
         #initialise pinocchio model and data
         self.robot_model = pin.buildModelFromUrdf(urdf_path)
         self.robot_data = self.robot_model.createData()
@@ -26,6 +26,7 @@ class RobotModel:
         self.current_joint_config = 0
         self.EE_frame_names = EE_frame_names
         self.EE_joint_names = EE_joint_names
+        self.hip_joint_names = hip_joint_names
         self.arm_base_id = self.robot_model.getJointId(G_base) #G_base
         self.FR_hip_joint = self.robot_model.getJointId(FR_hip_joint)
         self.n_velocity_dimensions = self.robot_model.nv
@@ -35,16 +36,20 @@ class RobotModel:
         self.n_of_EE = 5
         self.end_effector_index_list_frame = [] #[11, 19, 27, 35, 53]
         self.end_effector_index_list_joint = []
+        self.hip_joint_index_list_frame = []
         for i in range(len(self.EE_joint_names)):
             ID = self.robot_model.getFrameId(self.EE_frame_names[i], pin.FIXED_JOINT)
             self.end_effector_index_list_frame.append(ID)
             ID = self.robot_model.getJointId(self.EE_joint_names[i])
             self.end_effector_index_list_joint.append(ID)
+            if i < (len(self.EE_joint_names) - 1):
+                ID = self.robot_model.getFrameId(self.hip_joint_names[i], pin.JOINT)
+                self.hip_joint_index_list_frame.append(ID)
 
         print(self.end_effector_index_list_frame)
         print(self.end_effector_index_list_joint)
 
-        self.trunk_frame_index= self.robot_model.getFrameId(imu, pin.FIXED_JOINT)
+        self.trunk_frame_index = self.robot_model.getFrameId(imu, pin.FIXED_JOINT)
 
         self.count = 0
 
@@ -62,7 +67,7 @@ class RobotModel:
         self.EE_weight = [self.FL_weight, self.FR_weight, self.RL_weight, self.RR_weight, self.grip_weight]
 
         # task weights
-        self.taskWeightCart = 6
+        self.taskWeightCart = 5
         self.taskWeightJoint = 0.05
 
         # identify which tasks are active
@@ -78,12 +83,12 @@ class RobotModel:
 
         # cartesian proportional gains
         self.com_gain = np.identity(3)* 1 #1.5#1.631
-        self.trunk_gain = np.identity(6)* 0.001 #0.5425
+        self.trunk_gain = np.identity(6)* 0.1 #0.5425
         self.FL_gain = np.identity(6) * 0.001
         self.FR_gain = np.identity(6) * 0.001
         self.RL_gain = np.identity(6) * 0.001
         self.RR_gain = np.identity(6) * 0.001
-        self.GRIP_gain = np.identity(6) * 0.1
+        self.GRIP_gain = np.identity(6) * 0.15
         self.EE_gains = [self.FL_gain, self.FR_gain, self.RL_gain, self.RR_gain, self.GRIP_gain]
         
         self.comJacobian()
@@ -97,9 +102,19 @@ class RobotModel:
         self.qp = None
         self.FL_base_pos = self.robot_data.oMf[self.end_effector_index_list_frame[1]].translation
         self.print_ = False
+        
         self.setInitialState()
         self.print_ = True
         self.FL_base_pos = np.copy(self.robot_data.oMf[self.end_effector_index_list_frame[1]].translation)
+        
+        self.trunk_base_pos = np.copy(self.robot_data.oMf[self.trunk_frame_index].translation)
+
+        self.FR_prev_foot = np.copy(self.robot_data.oMf[self.end_effector_index_list_frame[0]].translation)
+        self.FL_prev_foot = np.copy(self.robot_data.oMf[self.end_effector_index_list_frame[1]].translation)
+        self.RR_prev_foot = np.copy(self.robot_data.oMf[self.end_effector_index_list_frame[2]].translation)
+        self.RL_prev_foot = np.copy(self.robot_data.oMf[self.end_effector_index_list_frame[3]].translation)
+
+        self.prev_trunk_pos = np.copy(self.robot_data.oMf[self.trunk_frame_index].translation)
 
         # IMU PID controller gains
         self.IMU_Kp = 0.9
@@ -123,6 +138,18 @@ class RobotModel:
         q = pin.neutral(self.robot_model)
         print(q.shape)
         self.updateState(q, feedback=False)
+
+        # find hip biases
+        FR_hip = np.copy(self.robot_data.oMf[self.end_effector_index_list_frame[0]].translation)
+        FL_hip = np.copy(self.robot_data.oMf[self.end_effector_index_list_frame[1]].translation)
+        RR_hip = np.copy(self.robot_data.oMf[self.end_effector_index_list_frame[2]].translation)
+        RL_hip = np.copy(self.robot_data.oMf[self.end_effector_index_list_frame[3]].translation)
+        x = abs((FR_hip[0] - RR_hip[0]))
+        x_half = x/2
+        print("x",x)
+        FR_bias = (FR_hip[0])/x_half
+        print("FR_bias", FR_hip[0])
+        
         # find initial cartesian position of end effectors and trunk
         EE_pos_FL = np.array([self.robot_data.oMf[self.end_effector_index_list_frame[0]].translation]).T
         EE_pos_FR = np.array([self.robot_data.oMf[self.end_effector_index_list_frame[1]].translation]).T 
@@ -207,18 +234,32 @@ class RobotModel:
             # find the new joint angles from the QP optimised joint velocities
             self.jointVelocitiestoConfig(qp_vel, True)
 
-            
-        print("Initial state set successfully")
-
         for i in range(len(self.current_joint_config)):
             if i < 6:
                 self.current_joint_config[i] = 0
 
         joint_config = self.current_joint_config
+
         self.updateState(joint_config, feedback=False)
+
+        # find world position of the trunk
+        FR_height = - np.copy(self.robot_data.oMf[self.end_effector_index_list_frame[0]].translation)
+        FL_height = - np.copy(self.robot_data.oMf[self.end_effector_index_list_frame[1]].translation)
+        RR_height = - np.copy(self.robot_data.oMf[self.end_effector_index_list_frame[2]].translation)
+        RL_height = - np.copy(self.robot_data.oMf[self.end_effector_index_list_frame[3]].translation)
+
+        trunk = np.copy(self.robot_data.oMf[self.trunk_frame_index].translation)
+        
+        height_offset = (FR_height[2] + FL_height[2] + RR_height[2] + RL_height[2])/4
+
+        joint_config[2] = height_offset
+        
+        self.updateState(joint_config, feedback=False)
+
+        print("Initial state set successfully")
             
                 
-    def updateState(self, joint_config, base_config=0, feedback=True): # put floatig base info here
+    def updateState(self, joint_config, base_config=0, feedback=True, running=False): # put floatig base info here
         if feedback == True:
             #base_config = self.IMU_PID.PIDUpdate(base_config,self.current_joint_config[:7])
             config = np.concatenate((base_config, joint_config), axis=0)
@@ -231,16 +272,30 @@ class RobotModel:
         #update current joint configurations, joint jacobians and absolute joint placements in the world frame
         self.previouse_joint_config = self.current_joint_config
         self.current_joint_config = config
-        
         self.J = pin.computeJointJacobians(self.robot_model, self.robot_data)
         self.comJacobian()
-        #print("\n\n")
-        #print(self.robot_data.com[0])
-        #print("\n\n")
         pin.framesForwardKinematics(self.robot_model, self.robot_data, config)
         self.oMi = self.robot_data.oMi
-        #print("joint_config",joint_config)
+        
+        if running == True:
+            base_pos = self.trunkWorldPos()
+            config = np.concatenate((base_pos, self.current_joint_config[3:]), axis=0)
 
+            #update robot configuration
+            pin.forwardKinematics(self.robot_model, self.robot_data, config)
+            #update current joint configurations, joint jacobians and absolute joint placements in the world frame
+            self.previouse_joint_config = self.current_joint_config
+            self.current_joint_config = config
+            self.J = pin.computeJointJacobians(self.robot_model, self.robot_data)
+            self.comJacobian()
+            pin.framesForwardKinematics(self.robot_model, self.robot_data, config)
+            self.oMi = self.robot_data.oMi
+
+            self.FR_prev_foot = np.copy(self.robot_data.oMf[self.end_effector_index_list_frame[0]].translation)
+            self.FL_prev_foot = np.copy(self.robot_data.oMf[self.end_effector_index_list_frame[1]].translation)
+            self.RR_prev_foot = np.copy(self.robot_data.oMf[self.end_effector_index_list_frame[2]].translation)
+            self.RL_prev_foot = np.copy(self.robot_data.oMf[self.end_effector_index_list_frame[3]].translation)
+        
         self.default_trunk_ori = self.Rot2Euler(self.robot_data.oMf[self.trunk_frame_index].rotation)
         self.default_EE_ori_list[0] = self.Rot2Euler(self.robot_data.oMf[self.end_effector_index_list_frame[0]].rotation)
         self.default_EE_ori_list[1] = self.Rot2Euler(self.robot_data.oMf[self.end_effector_index_list_frame[1]].rotation)
@@ -440,7 +495,7 @@ class RobotModel:
 
         # find desired cartesian position
         des_cart = np.concatenate((target_pos, target_rot), axis=0)
-        des_cart = self.targetWorldToLocal(des_cart)
+        #des_cart = self.targetWorldToLocal(des_cart)
 
         # calculate desired velocity
         pos_vel = (des_cart[:3] - fk_cart[:3]) / self.dt
@@ -573,6 +628,58 @@ class RobotModel:
             
         return b
 
+    def trunkWorldPos(self):
+        
+        FR_foot_pos = np.copy(self.robot_data.oMf[self.end_effector_index_list_frame[0]].translation)
+        FL_foot_pos = np.copy(self.robot_data.oMf[self.end_effector_index_list_frame[1]].translation)
+        RR_foot_pos = np.copy(self.robot_data.oMf[self.end_effector_index_list_frame[2]].translation)
+        RL_foot_pos = np.copy(self.robot_data.oMf[self.end_effector_index_list_frame[3]].translation)
+        
+        FR_hip_pos = np.copy(self.robot_data.oMf[self.hip_joint_index_list_frame[0]].translation)
+        FL_hip_pos = np.copy(self.robot_data.oMf[self.hip_joint_index_list_frame[1]].translation)
+        RR_hip_pos = np.copy(self.robot_data.oMf[self.hip_joint_index_list_frame[2]].translation)
+        RL_hip_pos = np.copy(self.robot_data.oMf[self.hip_joint_index_list_frame[3]].translation)
+
+        FR_current_foot_hip_offset = FR_foot_pos - FR_hip_pos
+        FL_current_foot_hip_offset = FL_foot_pos - FL_hip_pos
+        RR_current_foot_hip_offset = RR_foot_pos - RR_hip_pos
+        RL_current_foot_hip_offset = RL_foot_pos - RL_hip_pos
+
+        FR_offset_diff = FR_current_foot_hip_offset - (self.FR_prev_foot - FR_hip_pos)
+        FL_offset_diff = FL_current_foot_hip_offset - (self.FL_prev_foot - FL_hip_pos)
+        RR_offset_diff = RR_current_foot_hip_offset - (self.RR_prev_foot - RR_hip_pos)
+        RL_offset_diff = RL_current_foot_hip_offset - (self.RL_prev_foot - RL_hip_pos)
+
+        #print("current:", FR_foot_pos)
+        #print("prev   :", self.FR_prev_foot)
+
+        FR_new_hip_pos = FR_hip_pos - FR_offset_diff
+        FL_new_hip_pos = FL_hip_pos - FL_offset_diff
+        RR_new_hip_pos = RR_hip_pos - RR_offset_diff
+        RL_new_hip_pos = RL_hip_pos - RL_offset_diff
+
+        trunk_x = (FR_new_hip_pos[0] + FL_new_hip_pos[0] + RR_new_hip_pos[0] + RL_new_hip_pos[0])/4
+        trunk_y = (FR_new_hip_pos[1] + FL_new_hip_pos[1] + RR_new_hip_pos[1] + RL_new_hip_pos[1])/4
+        trunk_z = (FR_new_hip_pos[2] + FL_new_hip_pos[2] + RR_new_hip_pos[2] + RL_new_hip_pos[2])/4
+
+        #self.FR_prev_foot = FR_foot_pos
+        #self.FL_prev_foot = FL_foot_pos
+        #self.RR_prev_foot = RR_foot_pos
+        #self.RL_prev_foot = RL_foot_pos
+
+        new_trunk_pos_offset = np.array([trunk_x, trunk_y, trunk_z]) - self.prev_trunk_pos
+
+        self.prev_trunk_pos = np.array([trunk_x, trunk_y, trunk_z])
+
+        #new_trunk_pos_offset = np.array([0,0,0])
+
+        new_trunk_pos = self.current_joint_config[:3] + new_trunk_pos_offset
+
+        #print(new_trunk_pos)
+        
+        return new_trunk_pos
+        
+
 
     def runWBC(self, base_config, target_cartesian_pos_CoM=None, target_cartesian_vel_CoM=None, target_cartesian_pos_EE=None, target_cartesian_vel_EE=None, target_cartesian_pos_trunk=None, target_cartesian_vel_trunk=None):
         # find joint position and velocity limits
@@ -614,7 +721,7 @@ class RobotModel:
         #self.jointVelocitiestoConfig(q_vel, True)
 
         # update robot model with new joint and base configuration
-        self.updateState(joint_config, base_config)
+        self.updateState(joint_config, base_config, running=True)
 
         # return the new joint configuration
 
