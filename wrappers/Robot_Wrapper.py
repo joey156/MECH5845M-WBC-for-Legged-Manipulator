@@ -14,7 +14,7 @@ np.set_printoptions(suppress=True)
 class RobotModel:
     def __init__(self, urdf_path, EE_frame_names, EE_joint_names, G_base, imu, FR_hip_joint, hip_joint_names):
         #initialise pinocchio model and data
-        self.robot_model = pin.buildModelFromUrdf(urdf_path)
+        self.robot_model = pin.buildModelFromUrdf(urdf_path, pin.JointModelFreeFlyer())
         self.robot_data = self.robot_model.createData()
         self.joint_names = self.robot_model.names
         self.no_DoF = self.robot_model.nv
@@ -58,11 +58,11 @@ class RobotModel:
 
         # cartesian task weights
         self.com_weight = np.identity(3) * 1 # 20#1.2
-        self.trunk_weight = np.identity(6) * 300 #15#1
-        self.FL_weight = np.identity(6) * 40 #20#0.8 18 for wx100
-        self.FR_weight = np.identity(6) * 40 #20#0.8 18 for wx100
-        self.RL_weight = np.identity(6) * 40 #20#0.8 18 for wx100
-        self.RR_weight = np.identity(6) * 40 #20#0.8 18 for wx100
+        self.trunk_weight = np.identity(6) * 500 #15#1
+        self.FL_weight = np.identity(6) * 50 #20#0.8 18 for wx100
+        self.FR_weight = np.identity(6) * 50#20#0.8 18 for wx100
+        self.RL_weight = np.identity(6) * 50#20#0.8 18 for wx100
+        self.RR_weight = np.identity(6) * 50#20#0.8 18 for wx100
         self.grip_weight = np.identity(6) * 50 #15#1
         self.EE_weight = [self.FL_weight, self.FR_weight, self.RL_weight, self.RR_weight, self.grip_weight]
 
@@ -83,12 +83,12 @@ class RobotModel:
 
         # cartesian proportional gains
         self.com_gain = np.identity(3)* 1 #1.5#1.631
-        self.trunk_gain = np.identity(6)* 0.1 #0.5425
+        self.trunk_gain = np.identity(6)* 1 #0.5425
         self.FL_gain = np.identity(6) * 0.001
         self.FR_gain = np.identity(6) * 0.001
         self.RL_gain = np.identity(6) * 0.001
         self.RR_gain = np.identity(6) * 0.001
-        self.GRIP_gain = np.identity(6) * 0.15
+        self.GRIP_gain = np.identity(6) * 0.015
         self.EE_gains = [self.FL_gain, self.FR_gain, self.RL_gain, self.RR_gain, self.GRIP_gain]
         
         self.comJacobian()
@@ -136,7 +136,7 @@ class RobotModel:
         
         # set a neutral configuration
         q = pin.neutral(self.robot_model)
-        print(q.shape)
+        print(q)
         self.updateState(q, feedback=False)
 
         # find hip biases
@@ -217,6 +217,8 @@ class RobotModel:
             # find joint limits
             lower_vel_lim, upper_vel_lim = self.jointVelLimitsArray(True)
             lower_pos_lim, upper_pos_lim = self.jointPosLimitsArray(True)
+            #print(lower_vel_lim.shape)
+            #print(lower_pos_lim.shape)
             lb = np.concatenate((lower_vel_lim.T, lower_pos_lim), axis=0).reshape(((self.n_velocity_dimensions*2),))
             ub = np.concatenate((upper_vel_lim.T, upper_pos_lim), axis=0).reshape(((self.n_velocity_dimensions*2),))
 
@@ -268,6 +270,11 @@ class RobotModel:
             config = joint_config
         
         #update robot configuration
+        """
+        if running == True:
+            base_pos = self.trunkWorldPos2()
+            config = np.concatenate((base_pos, self.current_joint_config[3:]), axis=0)
+        """
         pin.forwardKinematics(self.robot_model, self.robot_data, config)
         #update current joint configurations, joint jacobians and absolute joint placements in the world frame
         self.previouse_joint_config = self.current_joint_config
@@ -278,7 +285,7 @@ class RobotModel:
         self.oMi = self.robot_data.oMi
         
         if running == True:
-            base_pos = self.trunkWorldPos()
+            base_pos = self.trunkWorldPos2()
             config = np.concatenate((base_pos, self.current_joint_config[3:]), axis=0)
 
             #update robot configuration
@@ -372,6 +379,7 @@ class RobotModel:
         
         for i in range(len(self.end_effector_index_list_frame)-2):
             Jtmp = pin.getFrameJacobian(self.robot_model, self.robot_data, self.end_effector_index_list_frame[i+1], pin.LOCAL_WORLD_ALIGNED)[:3]
+            #Jtmp[2] = 0
             Jtmp = np.concatenate((Jtmp, fill), axis=0)
             C = np.concatenate((C, Jtmp), axis=0)
         C = np.concatenate((C, np.zeros((6, self.n_velocity_dimensions))), axis=0)
@@ -679,11 +687,38 @@ class RobotModel:
         
         return new_trunk_pos
         
+    def trunkWorldPos2(self):
+        WRB = np.copy(self.robot_data.oMf[self.trunk_frame_index].rotation)
+        
+        FR_WPA = self.FR_target_cartesian_pos
+        FR_BPA = np.copy(self.robot_data.oMf[self.end_effector_index_list_frame[0]].translation).reshape(3,1)
+        FR_trunk_offset = (FR_WPA - np.dot(WRB, FR_BPA)).reshape(3,)
+        
+        FL_WPA = self.FL_target_cartesian_pos
+        FL_BPA = np.copy(self.robot_data.oMf[self.end_effector_index_list_frame[1]].translation).reshape(3,1)
+        FL_trunk_offset = (FL_WPA - np.dot(WRB, FL_BPA)).reshape(3,)
 
+        RR_WPA = self.RR_target_cartesian_pos
+        RR_BPA = np.copy(self.robot_data.oMf[self.end_effector_index_list_frame[2]].translation).reshape(3,1)
+        RR_trunk_offset = (RR_WPA - np.dot(WRB, RR_BPA)).reshape(3,)
+
+        RL_WPA = self.RL_target_cartesian_pos
+        RL_BPA = np.copy(self.robot_data.oMf[self.end_effector_index_list_frame[3]].translation).reshape(3,1)
+        RL_trunk_offset = (RL_WPA - np.dot(WRB, RL_BPA)).reshape(3,)
+
+        trunk_offset = (FR_trunk_offset + FL_trunk_offset + RR_trunk_offset + RL_trunk_offset)/4
+
+        trunk_pos = np.copy(self.robot_data.oMf[self.trunk_frame_index].translation) + trunk_offset
+
+        return trunk_pos
+        
 
     def runWBC(self, base_config, target_cartesian_pos_CoM=None, target_cartesian_vel_CoM=None, target_cartesian_pos_EE=None, target_cartesian_vel_EE=None, target_cartesian_pos_trunk=None, target_cartesian_vel_trunk=None):
-        # find joint position and velocity limits
-        #print(self.current_joint_config)
+        # store cartesian pos targets
+        self.FR_target_cartesian_pos = target_cartesian_pos_EE[0]
+        self.FL_target_cartesian_pos = target_cartesian_pos_EE[1]
+        self.RR_target_cartesian_pos = target_cartesian_pos_EE[2]
+        self.RL_target_cartesian_pos = target_cartesian_pos_EE[3]
 
         # ensure sample time is maintained
         while ((time.time() - self.previous_time) < self.sampling_time):

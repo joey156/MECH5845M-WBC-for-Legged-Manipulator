@@ -13,13 +13,14 @@ np.set_printoptions(precision=3)
 np.set_printoptions(suppress=True)
 np.set_printoptions(threshold=1200)
 
-urdf_path = "/home/joey156/Disso_ws/MECH5845M-WBC-for-Legged-Manipulator/Robot_Descriptions/urdf/a1_wx200.urdf"
+urdf_path = "/home/joey156/Documents/Robot_Descriptions/urdf/a1_wx200.urdf"
 
-#urdf_path = "/home/joey156/Disso_ws/MECH5845M-WBC-for-Legged-Manipulator/Robot_Descriptions/urdf/a1_px100_pin_ver.urdf"
-EE_frame_names = ["FL_foot_fixed", "FR_foot_fixed", "RL_foot_fixed", "RR_foot_fixed", "gripper_bar"]
-EE_joint_names = ["FL_calf_joint", "FR_calf_joint", "RL_calf_joint", "RR_calf_joint", "gripper"]
-LeggedRobot = RobotModel(urdf_path, EE_frame_names, EE_joint_names, "waist", "imu_joint", "FR_hip_joint")
-#LeggedRobot.neutralConfig()
+# initialise the RobotModel class
+EE_frame_names = ["FR_foot_fixed", "FL_foot_fixed", "RR_foot_fixed", "RL_foot_fixed", "gripper_bar"]
+EE_joint_names = ["FR_calf_joint", "FL_calf_joint", "RR_calf_joint", "RL_calf_joint", "gripper"]
+hip_joint_names = ["FR_hip_joint", "FL_hip_joint", "RR_hip_joint", "RL_hip_joint"]
+#LeggedRobot = RobotModel(urdf_path, "FL_foot_fixed", "FR_foot_fixed", "RL_foot_fixed", "RR_foot_fixed", "gripper_bar", "FL_calf_joint", "FR_calf_joint", "RL_calf_joint", "RR_calf_joint", "gripper", "waist", "imu_joint")
+LeggedRobot = RobotModel(urdf_path, EE_frame_names, EE_joint_names, "waist", "imu_joint", "FR_hip_joint", hip_joint_names)#LeggedRobot.neutralConfig()
 
 
 LeggedRobot.EndEffectorJacobians()
@@ -76,11 +77,18 @@ LeggedRobot.cartesianTargetsEE(EE_target_pos, EE_target_vel)
 #planner_pos, planner_vel = LeggedRobot.posAndVelTargetsCoM(com_target_pos)
 #print(planner_vel[0])
 #.printJointCart()
-print(LeggedRobot.robot_model.getFrameId("FR_hip_joint", pin.JOINT))
-print(LeggedRobot.robot_model.getFrameId("FL_hip_joint", pin.JOINT))
-print(LeggedRobot.robot_model.getFrameId("RR_hip_joint", pin.JOINT))
-print(LeggedRobot.robot_model.getFrameId("RL_hip_joint", pin.JOINT))
+q = np.array([ 0., 0., 0., -0.001, 0.012, -0.001, 1., 0.007, 0.868, -1.168, -0.001, 0.869, -1.169, 0.007, 0.823, -1.094, -0.001, 0.823, -1.094, -0.002, -2.133, 0.945, 1.112, 0.002, 0., 0., 0.])
 
+LeggedRobot.updateState(q, feedback=False)
+print(LeggedRobot.robot_data.oMf[LeggedRobot.end_effector_index_list_frame[0]].translation)
+
+q = np.array([ 0., 0., 0., -0.001, 0.012, -0.001, 1., 0.007, 0.868, -1.168, -0.001, 1, -1.169, 0.007, 0.823, -1.094, -0.001, 0.823, -1.094, -0.002, -2.133, 0.945, 1.112, 0.002, 0., 0., 0.])
+
+LeggedRobot.updateState(q, feedback=False)
+print(LeggedRobot.robot_data.oMf[LeggedRobot.end_effector_index_list_frame[0]].translation)
+
+
+#LeggedRobot.printJointCart()
 
 #print(pin.getJointJacobian(LeggedRobot.robot_model, LeggedRobot.robot_data, 1, pin.LOCAL_WORLD_ALIGNED))
 

@@ -12,7 +12,7 @@ plane = p.loadURDF("/home/joey156/Disso_ws/MECH5845M-WBC-for-Legged-Manipulator/
 p.setGravity(0,0,-9.8)
 p.setTimeStep(1./500)
 urdfFlags = p.URDF_USE_SELF_COLLISION
-urdf_path = "/home/joey156/Disso_ws/MECH5845M-WBC-for-Legged-Manipulator/Robot_Descriptions/urdf/a1_wx200.urdf"
+urdf_path = "/home/joey156/Documents/Robot_Descriptions/urdf/a1_wx200.urdf"
 #urdf_path = "/home/joey156/Disso_ws/MECH5845M-WBC-for-Legged-Manipulator/Robot_Descriptions/urdf/a1_px100_pin_ver.urdf"
 
 # initialise the RobotModel class
@@ -81,7 +81,7 @@ while (time.time()- t) < 2:
 
 print("Y", abs(LeggedRobot.robot_data.oMf[LeggedRobot.end_effector_index_list_frame[0]].translation[2]))
 
-p.resetBasePositionAndOrientation(LeggedRobot_bullet, [0, 0, (abs(LeggedRobot.robot_data.oMf[LeggedRobot.trunk_frame_index].translation[2])+0.05)], [0, 0, 0, 1])
+p.resetBasePositionAndOrientation(LeggedRobot_bullet, [0, 0, (abs(LeggedRobot.robot_data.oMf[LeggedRobot.trunk_frame_index].translation[2]))], [0, 0, 0, 1])
 
 # Simulation camera settings
 p.getCameraImage(1000,1000)
@@ -93,15 +93,15 @@ p.setRealTimeSimulation(1)
 LeggedRobot.setTasks(EE=True, CoM=False, Trunk=True, Joint="MANI")
 
 # setting objectives
-EE_pos_FL = np.array([LeggedRobot.robot_data.oMf[LeggedRobot.end_effector_index_list_frame[0]].translation]).T #np.array([[0.174, -0.142, -0.32]]).T
-EE_pos_FR = np.array([LeggedRobot.robot_data.oMf[LeggedRobot.end_effector_index_list_frame[1]].translation]).T #np.array([[0.163, 0.144, -0.32]]).T
-EE_pos_RL = np.array([LeggedRobot.robot_data.oMf[LeggedRobot.end_effector_index_list_frame[2]].translation]).T #np.array([[-0.196, -0.148, -0.32]]).T
-EE_pos_RR = np.array([LeggedRobot.robot_data.oMf[LeggedRobot.end_effector_index_list_frame[3]].translation]).T #np.array([[-0.203, 0.148, -0.32]]).T
+EE_pos_FR = np.array([LeggedRobot.robot_data.oMf[LeggedRobot.end_effector_index_list_frame[0]].translation]).T #np.array([[0.174, -0.142, -0.32]]).T
+EE_pos_FL = np.array([LeggedRobot.robot_data.oMf[LeggedRobot.end_effector_index_list_frame[1]].translation]).T #np.array([[0.163, 0.144, -0.32]]).T
+EE_pos_RR = np.array([LeggedRobot.robot_data.oMf[LeggedRobot.end_effector_index_list_frame[2]].translation]).T #np.array([[-0.196, -0.148, -0.32]]).T
+EE_pos_RL = np.array([LeggedRobot.robot_data.oMf[LeggedRobot.end_effector_index_list_frame[3]].translation]).T #np.array([[-0.203, 0.148, -0.32]]).T
 EE_pos_GRIP = np.array([LeggedRobot.robot_data.oMf[LeggedRobot.end_effector_index_list_frame[4]].translation]).T #np.array([[0.202, 0., 0.227]]).T #base: 0.252 0. 0.207 reach 0.5 0 -0.15
 EE_vel = np.array([[0,0,0,0,0,0]]).T
 Trunk_target_pos = np.array([LeggedRobot.robot_data.oMf[LeggedRobot.trunk_frame_index].translation]).T # 0.013 0.002 0.001
 Trunk_target_vel = np.array([[0,0,0,0,0,0]]).T
-EE_target_pos = [EE_pos_FL, EE_pos_FR, EE_pos_RL, EE_pos_RR, EE_pos_GRIP]
+EE_target_pos = [EE_pos_FR, EE_pos_FL, EE_pos_RR, EE_pos_RL, EE_pos_GRIP]
 EE_target_vel = [EE_vel, EE_vel, EE_vel, EE_vel, EE_vel]
 
 
@@ -168,12 +168,13 @@ while (1):
         EE_target_pos[4] = EE_pos_GRIP
 
         # fetch the IMU data for potision and orientation in the world frame
-        imu_state = np.array(p.getLinkState(LeggedRobot_bullet, 1)[5])
+        imu_state = np.array(p.getLinkState(LeggedRobot_bullet, 1)[3])
     
         imu_pos = np.array(p.getLinkState(LeggedRobot_bullet, 1)[4])
+
+        #imu_state = np.array([0,0,0,1])
         #imu = np.concatenate((imu_pos, imu_state), axis=0)
         #print("py:", p.getEulerFromQuaternion(imu_state))
-        #
         
         base_config = np.concatenate((LeggedRobot.current_joint_config[:3], imu_state), axis=0)
 
