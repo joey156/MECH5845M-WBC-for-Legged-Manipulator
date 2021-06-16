@@ -12,24 +12,23 @@ plane = p.loadURDF("/home/joey156/Disso_ws/MECH5845M-WBC-for-Legged-Manipulator/
 p.setGravity(0,0,-9.8)
 p.setTimeStep(1./500)
 urdfFlags = p.URDF_USE_SELF_COLLISION
-urdf_path = "/home/joey156/Documents/Robot_Descriptions/urdf/a1_wx200.urdf"
-#urdf_path = "/home/joey156/Disso_ws/MECH5845M-WBC-for-Legged-Manipulator/Robot_Descriptions/urdf/a1_px100_pin_ver.urdf"
+#urdf_path = "/home/joey156/Documents/Robot_Descriptions/urdf/a1_wx200.urdf"
+mesh_dir_path = "/home/joey156/Documents/Robot_Descriptions/meshes"
+urdf_path = "/home/joey156/Documents/Robot_Descriptions/urdf/a1_px100_pin_ver.urdf"
 
 # initialise the RobotModel class
 EE_frame_names = ["FR_foot_fixed", "FL_foot_fixed", "RR_foot_fixed", "RL_foot_fixed", "gripper_bar"]
 EE_joint_names = ["FR_calf_joint", "FL_calf_joint", "RR_calf_joint", "RL_calf_joint", "gripper"]
 hip_joint_names = ["FR_hip_joint", "FL_hip_joint", "RR_hip_joint", "RL_hip_joint"]
 #LeggedRobot = RobotModel(urdf_path, "FL_foot_fixed", "FR_foot_fixed", "RL_foot_fixed", "RR_foot_fixed", "gripper_bar", "FL_calf_joint", "FR_calf_joint", "RL_calf_joint", "RR_calf_joint", "gripper", "waist", "imu_joint")
-LeggedRobot = RobotModel(urdf_path, EE_frame_names, EE_joint_names, "waist", "imu_joint", "FR_hip_joint", hip_joint_names)
+LeggedRobot = RobotModel(urdf_path, mesh_dir_path, EE_frame_names, EE_joint_names, "waist", "imu_joint", "FR_hip_joint", hip_joint_names)
 print(LeggedRobot.current_joint_config)
 
 # load the legged robot urdf
 LeggedRobot_bullet = p.loadURDF(urdf_path,[0,0,1],[0,0,0,1], flags=urdfFlags, useFixedBase=False)
 
-
-
 # Removing the collision pairs between the two gripper fingers and the bar they are attached to
-
+"""
 p.setCollisionFilterPair(LeggedRobot_bullet, LeggedRobot_bullet, 28, 29, 0)
 p.setCollisionFilterPair(LeggedRobot_bullet, LeggedRobot_bullet, 26, 28, 0)
 p.setCollisionFilterPair(LeggedRobot_bullet, LeggedRobot_bullet, 26, 29, 0)
@@ -37,7 +36,7 @@ p.setCollisionFilterPair(LeggedRobot_bullet, LeggedRobot_bullet, 26, 29, 0)
 p.setCollisionFilterPair(LeggedRobot_bullet, LeggedRobot_bullet, 27, 28, 0)
 p.setCollisionFilterPair(LeggedRobot_bullet, LeggedRobot_bullet, 25, 27, 0)
 p.setCollisionFilterPair(LeggedRobot_bullet, LeggedRobot_bullet, 25, 28, 0)
-"""
+
 
 # Initialising lists
 jointIds = []
@@ -82,6 +81,11 @@ while (time.time()- t) < 2:
 print("Y", abs(LeggedRobot.robot_data.oMf[LeggedRobot.end_effector_index_list_frame[0]].translation[2]))
 
 p.resetBasePositionAndOrientation(LeggedRobot_bullet, [0, 0, (abs(LeggedRobot.robot_data.oMf[LeggedRobot.trunk_frame_index].translation[2]))], [0, 0, 0, 1])
+
+# allow simulation to settle
+t = time.time()
+while (time.time()- t) < 2:
+    time.sleep(1./500)
 
 # Simulation camera settings
 p.getCameraImage(1000,1000)
@@ -135,8 +139,8 @@ while (1):
     current_gripper_pos = LeggedRobot.robot_data.oMf[53].translation
     print(current_gripper_pos)
     #milestones = [current_gripper_pos.tolist(), [0.4, 0., 0.24], [0.4, -0.2, 0.24], [0.3, -0.35, 0.24], [0, -0.35, 0.24], [-0.1, -0.35, 0.14], [-0.1, -0.35, 0.09], [0, -0.35, -0.05], [0.3, -0.35, -0.05], [0.4, -0.2, -0.05], [0.4, 0.2, -0.05], [0.3, 0.35, -0.05], [0, 0.35, -0.05], [-0.1, 0.35, 0.09], [-0.1, 0.35, 0.14], [0, 0.35, 0.24], [0.3, 0.35, 0.24], [0.4, 0.2, 0.24], [0.4, 0, 0.24]]
-    milestones = [current_gripper_pos.tolist(), [0.4, 0., 0.58], [0.4, -0.2, 0.58], [0.3, -0.35, 0.58], [0, -0.35, 0.58], [-0.1, -0.35, 0.48], [-0.1, -0.35, 0.43], [0, -0.35, 0.29], [0.3, -0.35, 0.29], [0.4, -0.2, 0.29], [0.4, 0.2, 0.29], [0.3, 0.35, 0.29], [0, 0.35, 0.29], [-0.1, 0.35, 0.43], [-0.1, 0.35, 0.48], [0, 0.35, 0.58], [0.3, 0.35, 0.58], [0.4, 0.2, 0.58], [0.4, 0, 0.58]]
-    #milestones = [current_gripper_pos.tolist(), [0.28, 0., 0.21], [0.28, -0.1, 0.21], [0.22, -0.22, 0.21], [0.07, -0.22, 0.21], [0., -0.22, 0.17], [0., -0.22, 0.13], [0.07, -0.22, 0.1], [0.22, -0.22, 0.1],[0.28, -0.1, 0.1], [0.28, 0.1, 0.1], [0.22, 0.22, 0.1], [0.07, 0.22, 0.1], [0, 0.22, 0.13], [0, 0.22, 0.17], [0.07, 0.22, 0.21], [0.22, 0.22, 0.21], [0.28, 0.1, 0.21], [0.28, 0, 0.21]]
+    #milestones = [current_gripper_pos.tolist(), [0.4, 0., 0.58], [0.4, -0.2, 0.58], [0.3, -0.35, 0.58], [0, -0.35, 0.58], [-0.1, -0.35, 0.48], [-0.1, -0.35, 0.43], [0, -0.35, 0.29], [0.3, -0.35, 0.29], [0.4, -0.2, 0.29], [0.4, 0.2, 0.29], [0.3, 0.35, 0.29], [0, 0.35, 0.29], [-0.1, 0.35, 0.43], [-0.1, 0.35, 0.48], [0, 0.35, 0.58], [0.3, 0.35, 0.58], [0.4, 0.2, 0.58], [0.4, 0, 0.58]]
+    milestones = [current_gripper_pos.tolist(), [0.28, 0., 0.55], [0.28, -0.1, 0.55], [0.22, -0.22, 0.55], [0.07, -0.22, 0.55], [0., -0.22, 0.51], [0., -0.22, 0.47], [0.07, -0.22, 0.44], [0.22, -0.22, 0.44],[0.28, -0.1, 0.44], [0.28, 0.1, 0.44], [0.22, 0.22, 0.44], [0.07, 0.22, 0.44], [0, 0.22, 0.47], [0, 0.22, 0.51], [0.07, 0.22, 0.55], [0.22, 0.22, 0.55], [0.28, 0.1, 0.55], [0.28, 0, 0.55]]
     #milestones = [current_gripper_pos.tolist(), np.add(current_gripper_pos, np.array([0.1, 0, 0])).tolist()]
     traj = trajectory.Trajectory(milestones=milestones)
     traj2 = trajectory.HermiteTrajectory()
@@ -156,6 +160,18 @@ while (1):
     while (time.time()- t) < 2:
             p.stepSimulation()
             time.sleep(1./500)
+    """
+    print(LeggedRobot.robot_data.oMf[LeggedRobot.trunk_frame_index].translation)
+    XY_offset = np.array([p.getLinkState(LeggedRobot_bullet, 1)[4][:2]]).reshape(2,)
+    base_pos = LeggedRobot.current_joint_config[:7]
+    base_pos[0] = base_pos[0] + XY_offset[0]
+    base_pos[1] = base_pos[1] + XY_offset[1]
+    print("base_pos",base_pos)
+    print(XY_offset)
+    print("current", LeggedRobot.current_joint_config)
+    LeggedRobot.updateState(LeggedRobot.current_joint_config[7:], base_pos, feedback=True, running=True)
+    print(LeggedRobot.robot_data.oMf[LeggedRobot.trunk_frame_index].translation)
+    """
     print("start")
     for i in traj_interval:
 
@@ -169,7 +185,7 @@ while (1):
 
         # fetch the IMU data for potision and orientation in the world frame
         imu_state = np.array(p.getLinkState(LeggedRobot_bullet, 1)[3])
-    
+        
         imu_pos = np.array(p.getLinkState(LeggedRobot_bullet, 1)[4])
 
         #imu_state = np.array([0,0,0,1])

@@ -5,6 +5,8 @@ from Robot_Wrapper import RobotModel
 import numpy as np
 import pinocchio as pin
 import math
+import urdfpy
+from ctypes import *
 
 
 large_width = 400
@@ -14,13 +16,14 @@ np.set_printoptions(suppress=True)
 np.set_printoptions(threshold=1200)
 
 urdf_path = "/home/joey156/Documents/Robot_Descriptions/urdf/a1_wx200.urdf"
+mesh_dir_path = "/home/joey156/Documents/Robot_Descriptions/meshes"
 
 # initialise the RobotModel class
 EE_frame_names = ["FR_foot_fixed", "FL_foot_fixed", "RR_foot_fixed", "RL_foot_fixed", "gripper_bar"]
 EE_joint_names = ["FR_calf_joint", "FL_calf_joint", "RR_calf_joint", "RL_calf_joint", "gripper"]
 hip_joint_names = ["FR_hip_joint", "FL_hip_joint", "RR_hip_joint", "RL_hip_joint"]
 #LeggedRobot = RobotModel(urdf_path, "FL_foot_fixed", "FR_foot_fixed", "RL_foot_fixed", "RR_foot_fixed", "gripper_bar", "FL_calf_joint", "FR_calf_joint", "RL_calf_joint", "RR_calf_joint", "gripper", "waist", "imu_joint")
-LeggedRobot = RobotModel(urdf_path, EE_frame_names, EE_joint_names, "waist", "imu_joint", "FR_hip_joint", hip_joint_names)#LeggedRobot.neutralConfig()
+LeggedRobot = RobotModel(urdf_path, mesh_dir_path, EE_frame_names, EE_joint_names, "waist", "imu_joint", "FR_hip_joint", hip_joint_names)#LeggedRobot.neutralConfig()
 
 
 LeggedRobot.EndEffectorJacobians()
@@ -77,16 +80,14 @@ LeggedRobot.cartesianTargetsEE(EE_target_pos, EE_target_vel)
 #planner_pos, planner_vel = LeggedRobot.posAndVelTargetsCoM(com_target_pos)
 #print(planner_vel[0])
 #.printJointCart()
-q = np.array([ 0., 0., 0., -0.001, 0.012, -0.001, 1., 0.007, 0.868, -1.168, -0.001, 0.869, -1.169, 0.007, 0.823, -1.094, -0.001, 0.823, -1.094, -0.002, -2.133, 0.945, 1.112, 0.002, 0., 0., 0.])
 
-LeggedRobot.updateState(q, feedback=False)
-print(LeggedRobot.robot_data.oMf[LeggedRobot.end_effector_index_list_frame[0]].translation)
+#print(LeggedRobot.foot_radius[0])
 
-q = np.array([ 0., 0., 0., -0.001, 0.012, -0.001, 1., 0.007, 0.868, -1.168, -0.001, 1, -1.169, 0.007, 0.823, -1.094, -0.001, 0.823, -1.094, -0.002, -2.133, 0.945, 1.112, 0.002, 0., 0., 0.])
-
-LeggedRobot.updateState(q, feedback=False)
-print(LeggedRobot.robot_data.oMf[LeggedRobot.end_effector_index_list_frame[0]].translation)
-
+#print(LeggedRobot.geom_data.geometry_data)
+#foot_geom_id = LeggedRobot.geom_model.getGeometryId("FR_foot")
+foot_geom_name = LeggedRobot.geom_model.geometryObjects[LeggedRobot.end_effector_index_list_joint[0]+1].name
+foot_geom_id = LeggedRobot.geom_model.getGeometryId(foot_geom_name)
+print(LeggedRobot.geom_model.geometryObjects[8].geometry.radius)
 
 #LeggedRobot.printJointCart()
 
