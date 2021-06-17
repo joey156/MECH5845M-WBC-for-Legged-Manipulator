@@ -12,13 +12,14 @@ np.set_printoptions(precision=5)
 np.set_printoptions(suppress=True)
 
 class RobotModel:
-    def __init__(self, urdf_path, mesh_dir_path, EE_frame_names, EE_joint_names, G_base, imu, FR_hip_joint, hip_joint_names):
+    def __init__(self, urdf_path, mesh_dir_path, EE_frame_names, EE_joint_names, G_base, imu, FR_hip_joint, hip_joint_names, foot_offset=False):
         #initialise pinocchio model and data
         self.robot_model= pin.buildModelFromUrdf(urdf_path, pin.JointModelFreeFlyer())
         self.geom_model = pin.buildGeomFromUrdf(self.robot_model, urdf_path, mesh_dir_path, pin.GeometryType.COLLISION)
         self.robot_data = self.robot_model.createData()
         self.geom_data = pin.GeometryData(self.geom_model)
         self.joint_names = self.robot_model.names
+        self.foot_radius = 0
         self.no_DoF = self.robot_model.nv
         self.no_config = self.robot_model.nq
         #set robot to a neutral stance and initalise parameters
@@ -52,9 +53,10 @@ class RobotModel:
         print(self.end_effector_index_list_joint)
 
         # finding foot offset
-        foot_geom_name = self.geom_model.geometryObjects[self.end_effector_index_list_joint[0]+1].name
-        foot_geom_id = self.geom_model.getGeometryId(foot_geom_name)
-        self.foot_radius = self.geom_model.geometryObjects[8].geometry.radius
+        if foot_offset == True:
+            foot_geom_name = self.geom_model.geometryObjects[self.end_effector_index_list_joint[0]+1].name
+            foot_geom_id = self.geom_model.getGeometryId(foot_geom_name)
+            self.foot_radius = self.geom_model.geometryObjects[8].geometry.radius
 
         self.trunk_frame_index = self.robot_model.getFrameId(imu, pin.FIXED_JOINT)
 
@@ -70,7 +72,7 @@ class RobotModel:
         self.FR_weight = np.identity(6) * 4#20#0.8 18 for wx100
         self.RL_weight = np.identity(6) * 4#20#0.8 18 for wx100
         self.RR_weight = np.identity(6) * 4#20#0.8 18 for wx100
-        self.grip_weight = np.identity(6) * 55 #15#1
+        self.grip_weight = np.identity(6) * 100#55 #15#1
         self.EE_weight = [self.FL_weight, self.FR_weight, self.RL_weight, self.RR_weight, self.grip_weight]
 
         # task weights

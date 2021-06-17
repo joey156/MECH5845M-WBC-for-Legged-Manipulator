@@ -6,36 +6,57 @@ from QP_Wrapper import QP
 from Robot_Wrapper import RobotModel
 from klampt.model import trajectory
 
+# define robot to use: "a1_wx200", "a1_px100", "laikago_vx300"
+#robot = "a1_wx200"
+robot = "a1_px100"
+#robot = "laikago_vx300"
+if robot == "a1_wx200":
+    robot_index = 0
+    foot_offset = True
+if robot == "a1_px100":
+    robot_index = 1
+    foot_offset = True
+if robot == "laikago_vx300":
+    robot_index = 2
+    foot_offset = False
+
 # setup simulation parameters
 p.connect(p.GUI)
 plane = p.loadURDF("/home/joey156/Disso_ws/MECH5845M-WBC-for-Legged-Manipulator/tests_NOT_FOR_USE/plane.urdf")
 p.setGravity(0,0,-9.8)
 p.setTimeStep(1./500)
 urdfFlags = p.URDF_USE_SELF_COLLISION
-#urdf_path = "/home/joey156/Documents/Robot_Descriptions/urdf/a1_wx200.urdf"
+
+# defining urdf file paths
+a1_wx200_urdf_path = "/home/joey156/Documents/Robot_Descriptions/urdf/a1_wx200.urdf"
+a1_px100_urdf_path = "/home/joey156/Documents/Robot_Descriptions/urdf/a1_px100_pin_ver.urdf"
+laikago_vx300_urdf_path = "/home/joey156/Documents/Robot_Descriptions/urdf/laikago_vx300.urdf"
+urdf_path_list = [a1_wx200_urdf_path, a1_px100_urdf_path, laikago_vx300_urdf_path]
+
 mesh_dir_path = "/home/joey156/Documents/Robot_Descriptions/meshes"
-urdf_path = "/home/joey156/Documents/Robot_Descriptions/urdf/a1_px100_pin_ver.urdf"
 
 # initialise the RobotModel class
 EE_frame_names = ["FR_foot_fixed", "FL_foot_fixed", "RR_foot_fixed", "RL_foot_fixed", "gripper_bar"]
 EE_joint_names = ["FR_calf_joint", "FL_calf_joint", "RR_calf_joint", "RL_calf_joint", "gripper"]
 hip_joint_names = ["FR_hip_joint", "FL_hip_joint", "RR_hip_joint", "RL_hip_joint"]
 #LeggedRobot = RobotModel(urdf_path, "FL_foot_fixed", "FR_foot_fixed", "RL_foot_fixed", "RR_foot_fixed", "gripper_bar", "FL_calf_joint", "FR_calf_joint", "RL_calf_joint", "RR_calf_joint", "gripper", "waist", "imu_joint")
-LeggedRobot = RobotModel(urdf_path, mesh_dir_path, EE_frame_names, EE_joint_names, "waist", "imu_joint", "FR_hip_joint", hip_joint_names)
+LeggedRobot = RobotModel(urdf_path_list[robot_index], mesh_dir_path, EE_frame_names, EE_joint_names, "waist", "imu_joint", "FR_hip_joint", hip_joint_names, foot_offset=foot_offset)
 print(LeggedRobot.current_joint_config)
 
 # load the legged robot urdf
-LeggedRobot_bullet = p.loadURDF(urdf_path,[0,0,1],[0,0,0,1], flags=urdfFlags, useFixedBase=False)
+LeggedRobot_bullet = p.loadURDF(urdf_path_list[robot_index],[0,0,1],[0,0,0,1], flags=urdfFlags, useFixedBase=False)
+
 
 # Removing the collision pairs between the two gripper fingers and the bar they are attached to
-"""
-p.setCollisionFilterPair(LeggedRobot_bullet, LeggedRobot_bullet, 28, 29, 0)
-p.setCollisionFilterPair(LeggedRobot_bullet, LeggedRobot_bullet, 26, 28, 0)
-p.setCollisionFilterPair(LeggedRobot_bullet, LeggedRobot_bullet, 26, 29, 0)
-"""
-p.setCollisionFilterPair(LeggedRobot_bullet, LeggedRobot_bullet, 27, 28, 0)
-p.setCollisionFilterPair(LeggedRobot_bullet, LeggedRobot_bullet, 25, 27, 0)
-p.setCollisionFilterPair(LeggedRobot_bullet, LeggedRobot_bullet, 25, 28, 0)
+if robot_index == 0:
+    p.setCollisionFilterPair(LeggedRobot_bullet, LeggedRobot_bullet, 28, 29, 0)
+    p.setCollisionFilterPair(LeggedRobot_bullet, LeggedRobot_bullet, 26, 28, 0)
+    p.setCollisionFilterPair(LeggedRobot_bullet, LeggedRobot_bullet, 26, 29, 0)
+
+if robot_index == 1 or robot_index == 2:
+    p.setCollisionFilterPair(LeggedRobot_bullet, LeggedRobot_bullet, 27, 28, 0)
+    p.setCollisionFilterPair(LeggedRobot_bullet, LeggedRobot_bullet, 25, 27, 0)
+    p.setCollisionFilterPair(LeggedRobot_bullet, LeggedRobot_bullet, 25, 28, 0)
 
 
 # Initialising lists
@@ -138,10 +159,12 @@ while (1):
     # setting gripper trajectory
     current_gripper_pos = LeggedRobot.robot_data.oMf[53].translation
     print(current_gripper_pos)
-    #milestones = [current_gripper_pos.tolist(), [0.4, 0., 0.24], [0.4, -0.2, 0.24], [0.3, -0.35, 0.24], [0, -0.35, 0.24], [-0.1, -0.35, 0.14], [-0.1, -0.35, 0.09], [0, -0.35, -0.05], [0.3, -0.35, -0.05], [0.4, -0.2, -0.05], [0.4, 0.2, -0.05], [0.3, 0.35, -0.05], [0, 0.35, -0.05], [-0.1, 0.35, 0.09], [-0.1, 0.35, 0.14], [0, 0.35, 0.24], [0.3, 0.35, 0.24], [0.4, 0.2, 0.24], [0.4, 0, 0.24]]
-    #milestones = [current_gripper_pos.tolist(), [0.4, 0., 0.58], [0.4, -0.2, 0.58], [0.3, -0.35, 0.58], [0, -0.35, 0.58], [-0.1, -0.35, 0.48], [-0.1, -0.35, 0.43], [0, -0.35, 0.29], [0.3, -0.35, 0.29], [0.4, -0.2, 0.29], [0.4, 0.2, 0.29], [0.3, 0.35, 0.29], [0, 0.35, 0.29], [-0.1, 0.35, 0.43], [-0.1, 0.35, 0.48], [0, 0.35, 0.58], [0.3, 0.35, 0.58], [0.4, 0.2, 0.58], [0.4, 0, 0.58]]
-    milestones = [current_gripper_pos.tolist(), [0.28, 0., 0.55], [0.28, -0.1, 0.55], [0.22, -0.22, 0.55], [0.07, -0.22, 0.55], [0., -0.22, 0.51], [0., -0.22, 0.47], [0.07, -0.22, 0.44], [0.22, -0.22, 0.44],[0.28, -0.1, 0.44], [0.28, 0.1, 0.44], [0.22, 0.22, 0.44], [0.07, 0.22, 0.44], [0, 0.22, 0.47], [0, 0.22, 0.51], [0.07, 0.22, 0.55], [0.22, 0.22, 0.55], [0.28, 0.1, 0.55], [0.28, 0, 0.55]]
-    #milestones = [current_gripper_pos.tolist(), np.add(current_gripper_pos, np.array([0.1, 0, 0])).tolist()]
+    # defining trajectories
+    a1_wx200_milestones = [current_gripper_pos.tolist(), [0.4, 0., 0.58], [0.4, -0.2, 0.58], [0.3, -0.35, 0.58], [0, -0.35, 0.58], [-0.1, -0.35, 0.48], [-0.1, -0.35, 0.43], [0, -0.35, 0.29], [0.3, -0.35, 0.29], [0.4, -0.2, 0.29], [0.4, 0.2, 0.29], [0.3, 0.35, 0.29], [0, 0.35, 0.29], [-0.1, 0.35, 0.43], [-0.1, 0.35, 0.48], [0, 0.35, 0.58], [0.3, 0.35, 0.58], [0.4, 0.2, 0.58], [0.4, 0, 0.58]]
+    a1_px100_milestones = [current_gripper_pos.tolist(), [0.28, 0., 0.55], [0.28, -0.1, 0.55], [0.22, -0.22, 0.55], [0.07, -0.22, 0.55], [0., -0.22, 0.51], [0., -0.22, 0.47], [0.07, -0.22, 0.44], [0.22, -0.22, 0.44],[0.28, -0.1, 0.44], [0.28, 0.1, 0.44], [0.22, 0.22, 0.44], [0.07, 0.22, 0.44], [0, 0.22, 0.47], [0, 0.22, 0.51], [0.07, 0.22, 0.55], [0.22, 0.22, 0.55], [0.28, 0.1, 0.55], [0.28, 0, 0.55]]
+    laikago_vx300_milestones = [current_gripper_pos.tolist(), [0.4, 0., 0.80], [0.4, -0.2, 0.80], [0.3, -0.35, 0.80], [0, -0.35, 0.80], [-0.1, -0.35, 0.75], [-0.1, -0.35, 0.70], [0, -0.35, 0.59], [0.3, -0.35, 0.59], [0.4, -0.2, 0.59], [0.4, 0.2, 0.59], [0.3, 0.35, 0.59], [0, 0.35, 0.59], [-0.1, 0.35, 0.70], [-0.1, 0.35, 0.75], [0, 0.35, 0.80], [0.3, 0.35, 0.80], [0.4, 0.2, 0.80], [0.4, 0, 0.80]]
+    milestones_list = [a1_wx200_milestones, a1_px100_milestones, laikago_vx300_milestones]
+    milestones = milestones_list[robot_index]
     traj = trajectory.Trajectory(milestones=milestones)
     traj2 = trajectory.HermiteTrajectory()
     traj2.makeSpline(traj)  

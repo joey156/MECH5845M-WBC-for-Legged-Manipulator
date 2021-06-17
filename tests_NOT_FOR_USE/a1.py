@@ -8,7 +8,7 @@ p.setGravity(0,0,-9.8)
 p.setTimeStep(1./500)
 urdfFlags = p.URDF_USE_SELF_COLLISION #| p.URDF_USE_SELF_COLLISION_EXCLUDE_ALL_PARENTS
 
-quadruped = p.loadURDF("/home/joey156/Disso_ws/MECH5845M-WBC-for-Legged-Manipulator/Robot_Descriptions/urdf/a1_px100_pin_ver.urdf",[0,0,0.4],[0,0,0,1], flags=urdfFlags,useFixedBase=False)
+quadruped = p.loadURDF("/home/joey156/Documents/Robot_Descriptions/leeds_laikago_arm_description/urdf/laikago.urdf",[0,0,0.4],[0,0,0,1], flags=urdfFlags,useFixedBase=False)
 
 
 
