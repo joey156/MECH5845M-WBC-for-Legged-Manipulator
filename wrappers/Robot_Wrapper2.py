@@ -511,11 +511,14 @@ class RobotModel:
         return C, Clb, Cub
 
 
-    def CoMConstraint(self):
+    def CoMConstraint(self): # assumes feet are static
         C= pin.jacobianCenterOfMass(self.robot_model, self.robot_data, self.current_joint_config)[:2]
         C = np.concatenate((C, np.zeros((1, self.n_velocity_dimensions))), axis=0)
-        Cub = self.robot_data.oMf[self.end_effector_index_list_frame[0]].translation.reshape((C.shape[0],)) # FL
-        Clb = self.robot_data.oMf[self.end_effector_index_list_frame[3]].translation.reshape((C.shape[0],)) # RR
+        CoM_pos = self.robot_data.com[0]
+        FL_pos = self.robot_data.oMf[self.end_effector_index_list_frame[1]].translation # FL (+x,+y) in local coordinates
+        RR_pos = self.robot_data.oMf[self.end_effector_index_list_frame[3]].translation # RR (-x,-y) in local coordinates
+        Clb = ((RR_pos - CoM_pos) / self.dt).reshape(C.shape[0])
+        Cub = ((FL_pos - CoM_pos) / self.dt).reshape(C.shape[0])
         return C, Clb, Cub
 
 
@@ -533,9 +536,9 @@ class RobotModel:
         C, Clb, Cub = self.footConstraint()
         D, Dlb, Dub = self.CoMConstraint()
 
-        #C = np.concatenate((C, D), axis=0)
-        #Clb = np.concatenate((Clb, Dlb), axis=0).reshape((C.shape[0],))
-        #Cub = np.concatenate((Cub, Dub), axis=0).reshape((C.shape[0],))
+        C = np.concatenate((C, D), axis=0)
+        Clb = np.concatenate((Clb, Dlb), axis=0).reshape((C.shape[0],))
+        Cub = np.concatenate((Cub, Dub), axis=0).reshape((C.shape[0],))
 
         #E, Elb, Eub = self.gripperConstraint()
         #C = np.concatenate((C, E), axis=0)
@@ -984,7 +987,7 @@ class RobotModel:
         self.FR_weight = np.identity(6) * 4 #20#0.8 18 for wx100
         self.RL_weight = np.identity(6) * 4 #20#0.8 18 for wx100
         self.RR_weight = np.identity(6) * 4 #20#0.8 18 for wx100
-        self.grip_weight = np.identity(6) * 150#55 #15#1
+        self.grip_weight = np.identity(6) * 140#55 #15#1
         self.EE_weight = [self.FL_weight, self.FR_weight, self.RL_weight, self.RR_weight, self.grip_weight]
 
         # adjust arm weight
