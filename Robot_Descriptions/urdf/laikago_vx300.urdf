@@ -31,6 +31,20 @@
   <material name="white">
     <color rgba="1.0 1.0 1.0 1.0"/>
   </material>
+  
+  <link name="base">
+    <visual>
+      <origin rpy="0 0 0" xyz="0 0 0"/>
+      <geometry>
+        <box size="0.001 0.001 0.001"/>
+      </geometry>
+    </visual>
+  </link>
+  <joint name="floating_base" type="fixed">
+    <origin rpy="0 0 0" xyz="0 0 0"/>
+    <parent link="base"/>
+    <child link="trunk"/>
+  </joint>
 
   <link name="trunk">
     <visual>
@@ -162,7 +176,7 @@
     </inertial>
   </link>
   <joint name="FR_foot_fixed" type="fixed">
-    <origin rpy="0 0 0" xyz="-0.008 0 -0.25"/>
+    <origin rpy="0 0 0" xyz="0 0 -0.25"/>
     <parent link="FR_calf"/>
     <child link="FR_foot"/>
   </joint>
@@ -271,7 +285,7 @@
     </inertial>
   </link>
   <joint name="FL_foot_fixed" type="fixed">
-    <origin rpy="0 0 0" xyz="-0.008 0 -0.25"/>
+    <origin rpy="0 0 0" xyz="0 0 -0.25"/>
     <parent link="FL_calf"/>
     <child link="FL_foot"/>
   </joint>
@@ -380,7 +394,7 @@
     </inertial>
   </link>
   <joint name="RR_foot_fixed" type="fixed">
-    <origin rpy="0 0 0" xyz="-0.008 0 -0.25"/>
+    <origin rpy="0 0 0" xyz="0 0 -0.25"/>
     <parent link="RR_calf"/>
     <child link="RR_foot"/>
   </joint>
@@ -489,7 +503,7 @@
     </inertial>
   </link>
   <joint name="RL_foot_fixed" type="fixed">
-    <origin rpy="0 0 0" xyz="-0.008 0 -0.25"/>
+    <origin rpy="0 0 0" xyz="0 0 -0.25"/>
     <parent link="RL_calf"/>
     <child link="RL_foot"/>
   </joint>
