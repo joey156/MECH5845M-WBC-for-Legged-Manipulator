@@ -2,6 +2,7 @@ import pybullet as p
 import time
 import pinocchio as pin
 import numpy as np
+import pandas as pd
 from QP_Wrapper import QP
 from Robot_Wrapper2 import RobotModel
 from klampt.model import trajectory
@@ -21,12 +22,20 @@ if robot == "laikago_vx300":
     foot_offset = False
 
 # select simulation
-#sim = "static reach"
-sim = "chickenhead"
-if sim == "static reach":
+sim = "static_reach"
+#sim = "chickenhead"
+if sim == "static_reach":
     sim_id = 0
 if sim == "chickenhead":
     sim_id = 1
+
+# enable or disable data collection
+#data_collection = True
+data_collection = False
+if data_collection == True:
+    data_dict = {"Time":[], "target x":[], "target y":[], "target z":[], "real x":[], "real y":[], "real z":[]}
+    data_name = robot + "_" + sim + ".csv"
+
 
 # setup simulation parameters
 p.connect(p.GUI)
@@ -46,9 +55,9 @@ mesh_dir_path = "/home/joey156/Documents/Robot_Descriptions/meshes"
 # initialise the RobotModel class
 EE_frame_names = ["FR_foot_fixed", "FL_foot_fixed", "RR_foot_fixed", "RL_foot_fixed", "gripper_bar"]
 EE_joint_names = ["FR_calf_joint", "FL_calf_joint", "RR_calf_joint", "RL_calf_joint", "gripper"]
-hip_joint_names = ["FR_hip_joint", "FL_hip_joint", "RR_hip_joint", "RL_hip_joint"]
+hip_waist_joint_names = ["FR_hip_joint", "FL_hip_joint", "RR_hip_joint", "RL_hip_joint", "waist"]
 #LeggedRobot = RobotModel(urdf_path, "FL_foot_fixed", "FR_foot_fixed", "RL_foot_fixed", "RR_foot_fixed", "gripper_bar", "FL_calf_joint", "FR_calf_joint", "RL_calf_joint", "RR_calf_joint", "gripper", "waist", "imu_joint")
-LeggedRobot = RobotModel(urdf_path_list[robot_index], mesh_dir_path, EE_frame_names, EE_joint_names, "waist", "imu_joint", "FR_hip_joint", hip_joint_names, foot_offset=foot_offset)
+LeggedRobot = RobotModel(urdf_path_list[robot_index], mesh_dir_path, EE_frame_names, EE_joint_names, "waist", "imu_joint", "FR_hip_joint", hip_waist_joint_names, foot_offset=foot_offset)
 print(LeggedRobot.current_joint_config)
 
 # load the legged robot urdf
@@ -191,7 +200,8 @@ while (1):
     
     # defining trajectories
     a1_wx200_trunk_milestones = [current_trunk_pos.tolist(), [0, 0, 0.15], [0, 0, 0.48], current_trunk_pos.tolist(), [0, -0.15, current_trunk_pos.tolist()[2]], [0, 0.15, current_trunk_pos.tolist()[2]], current_trunk_pos.tolist(), [-0.1, 0, current_trunk_pos.tolist()[2]], [0.08, 0, current_trunk_pos.tolist()[2]], current_trunk_pos.tolist()]
-    a1_wx200_milestones = [current_gripper_pos.tolist(), [0.4, 0., 0.58], [0.4, -0.2, 0.58], [0.3, -0.35, 0.58], [0, -0.35, 0.58], [-0.1, -0.35, 0.48], [-0.1, -0.35, 0.43], [0, -0.35, 0.29], [0.3, -0.35, 0.29], [0.4, -0.2, 0.29], [0.4, 0.2, 0.29], [0.3, 0.35, 0.29], [0, 0.35, 0.29], [-0.1, 0.35, 0.43], [-0.1, 0.35, 0.48], [0, 0.35, 0.58], [0.3, 0.35, 0.58], [0.4, 0.2, 0.58], [0.4, 0, 0.58]]
+    #a1_wx200_milestones = [current_gripper_pos.tolist(), [0.4, 0., 0.58], [0.4, -0.25, 0.58], [0.3, -0.35, 0.58], [0, -0.35, 0.58], [-0.1, -0.46, 0.48], [-0.1, -0.35, 0.43], [0, -0.35, 0.29], [0.3, -0.35, 0.29], [0.4, -0.2, 0.29], [0.4, 0.2, 0.29], [0.3, 0.40, 0.29], [0, 0.35, 0.29], [-0.1, 0.35, 0.43], [-0.1, 0.35, 0.48], [0, 0.35, 0.58], [0.3, 0.35, 0.58], [0.4, 0.2, 0.58], [0.4, 0, 0.58]]
+    a1_wx200_milestones = [current_gripper_pos.tolist(), [0.4, 0., 0.58], [0.4, 0.25, 0.58], [0.3, 0.35, 0.58], [0, 0.35, 0.58], [-0.1, 0.46, 0.48], [-0.1, 0.35, 0.43], [0, 0.35, 0.29], [0.3, 0.35, 0.29], [0.4, 0.2, 0.29], [0.4, -0.2, 0.29], [0.3, -0.40, 0.29], [0, -0.35, 0.29], [-0.1, -0.35, 0.43], [-0.1, -0.35, 0.48], [0, -0.35, 0.58], [0.3, -0.35, 0.58], [0.4, -0.2, 0.58], [0.4, 0, 0.58]]
     a1_px100_milestones = [current_gripper_pos.tolist(), [0.28, 0., 0.55], [0.28, -0.1, 0.55], [0.22, -0.2, 0.55], [0.07, -0.2, 0.55], [0., -0.2, 0.52], [0., -0.2, 0.47], [0.07, -0.2, 0.44], [0.22, -0.20, 0.44],[0.32, -0.05, 0.44], [0.32, 0.1, 0.44], [0.22, 0.2, 0.44], [0.07, 0.2, 0.44], [0, 0.2, 0.47], [0, 0.2, 0.52], [0.07, 0.2, 0.55], [0.22, 0.2, 0.55], [0.28, 0.1, 0.55], [0.28, 0, 0.55]]
     laikago_vx300_milestones = [current_gripper_pos.tolist(), [0.4, 0., 0.80], [0.4, -0.2, 0.80], [0.3, -0.35, 0.80], [0, -0.35, 0.80], [-0.1, -0.35, 0.75], [-0.1, -0.35, 0.70], [0, -0.35, 0.59], [0.3, -0.35, 0.59], [0.4, -0.2, 0.59], [0.4, 0.2, 0.59], [0.3, 0.35, 0.59], [0, 0.35, 0.59], [-0.1, 0.35, 0.70], [-0.1, 0.35, 0.75], [0, 0.35, 0.80], [0.3, 0.35, 0.80], [0.4, 0.2, 0.80], [0.4, 0, 0.80]]
 
@@ -211,14 +221,14 @@ while (1):
     if sim_id == 1:
         interval = 0.001
     traj_interval = np.arange(0,len(milestones),interval).tolist()
-
+    
     # plot desired trajectory
     previouse_traj_point = np.add(traj2.eval(0), 0).tolist()
     for i in np.arange(0,len(milestones),0.1).tolist():
         current_traj_point = np.add(traj2.eval(i), 0).tolist()
         p.addUserDebugLine(previouse_traj_point, current_traj_point, lineColorRGB=[0,0,0], lineWidth=3, lifeTime=0)
         previouse_traj_point = current_traj_point
-
+    
     print(LeggedRobot.com_weight)
 
     print("CoM:")
@@ -265,6 +275,9 @@ while (1):
     print(LeggedRobot.robot_data.oMf[LeggedRobot.trunk_frame_index].translation)
     """
     print("start")
+
+    start_time = time.time()
+    
     for i in traj_interval:
 
         #print(planner_pos[i])
@@ -279,13 +292,14 @@ while (1):
             Trunk_target_pos = np.array([traj2.eval(i)]).T
 
         # fetch the IMU data for potision and orientation in the world frame
-        imu_state = np.array(p.getLinkState(LeggedRobot_bullet, 1)[3])
+        imu_state = np.array(p.getLinkState(LeggedRobot_bullet, 1)[5])
         
         imu_pos = np.array(p.getLinkState(LeggedRobot_bullet, 1)[4])
 
         #imu_state = np.array([0,0,0,1])
         #imu = np.concatenate((imu_pos, imu_state), axis=0)
-        #print("py:", p.getEulerFromQuaternion(imu_state))
+        #print("py:", p.getEulerFromQuaternion(np.array(p.getLinkState(LeggedRobot_bullet, 1)[5])))
+        #print("pin:", LeggedRobot.Rot2Euler(LeggedRobot.robot_data.oMf[LeggedRobot.trunk_frame_index].rotation).reshape(3,))
         
         base_config = np.concatenate((LeggedRobot.current_joint_config[:3], imu_state), axis=0)
 
@@ -305,6 +319,8 @@ while (1):
         for ii in range(len(joints_py)):
             p.setJointMotorControl2(LeggedRobot_bullet, jointIds[ii], p.POSITION_CONTROL, joint_config[ii], force=maxForce)
 
+        current_time = time.time() - start_time
+
         # visually track the CoM
         base_pos = imu_state[0]
         current_com_pos = np.add(LeggedRobot.robot_data.com[0], base_pos).tolist()
@@ -313,14 +329,17 @@ while (1):
 
         previouse_com_pos = current_com_pos
 
-        #print("Translation:", LeggedRobot.robot_data.oMf[3].translation)
-        #print("Rotation:", LeggedRobot.Rot2Euler(LeggedRobot.robot_data.oMf[3].rotation).T)
-        #print(LeggedRobot.robot_data.oMf[LeggedRobot.end_effector_index_list_frame[1]].translation)
-
-        #p.stepSimulation()
-        #time.sleep(1./500)
-
-        #print(i)
+        """ Data Collection """
+        if data_collection == True:
+            # collect data in dict
+            data_dict["Time"].append(current_time)
+            data_dict["target x"].append(float(EE_target_pos[4][0]))
+            data_dict["target y"].append(float(EE_target_pos[4][1]))
+            data_dict["target z"].append(float(EE_target_pos[4][2]))
+            data_dict["real x"].append(p.getLinkState(LeggedRobot_bullet, EE_ID_py[4])[4][0])
+            data_dict["real y"].append(p.getLinkState(LeggedRobot_bullet, EE_ID_py[4])[4][1])
+            data_dict["real z"].append(p.getLinkState(LeggedRobot_bullet, EE_ID_py[4])[4][2])
+            
 
     while (1):
         print("done")
@@ -355,6 +374,11 @@ while (1):
         break
     break
 
+# write data to CSV
+if data_collection == True:
+    data = pd.DataFrame(data_dict)
+    data.to_csv(data_name,index=False)
+    print("data saved")
 
 # Cleanup
 p.disconnect()

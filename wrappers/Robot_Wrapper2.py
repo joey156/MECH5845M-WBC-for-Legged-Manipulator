@@ -1,4 +1,6 @@
+
 import pinocchio as pin
+from scipy.spatial.transform import Rotation as R
 import numpy as np
 import math
 import time
@@ -12,7 +14,7 @@ np.set_printoptions(precision=5)
 np.set_printoptions(suppress=True)
 
 class RobotModel:
-    def __init__(self, urdf_path, mesh_dir_path, EE_frame_names, EE_joint_names, G_base, imu, FR_hip_joint, hip_joint_names, foot_offset=False):
+    def __init__(self, urdf_path, mesh_dir_path, EE_frame_names, EE_joint_names, G_base, imu, FR_hip_joint, hip_waist_joint_names, foot_offset=False):
         #initialise pinocchio model and data
         self.robot_model= pin.buildModelFromUrdf(urdf_path, pin.JointModelFreeFlyer())
         self.geom_model = pin.buildGeomFromUrdf(self.robot_model, urdf_path, mesh_dir_path, pin.GeometryType.COLLISION)
@@ -29,7 +31,7 @@ class RobotModel:
         self.current_joint_config = 0
         self.EE_frame_names = EE_frame_names
         self.EE_joint_names = EE_joint_names
-        self.hip_joint_names = hip_joint_names
+        self.hip_waist_joint_names = hip_waist_joint_names
         self.arm_base_id = self.robot_model.getJointId(G_base) #G_base
         self.arm_base_frame_id = self.robot_model.getFrameId(G_base, pin.JOINT)
         self.FR_hip_joint = self.robot_model.getJointId(FR_hip_joint)
@@ -40,15 +42,14 @@ class RobotModel:
         self.n_of_EE = 5
         self.end_effector_index_list_frame = [] #[11, 19, 27, 35, 53]
         self.end_effector_index_list_joint = []
-        self.hip_joint_index_list_frame = []
+        self.hip_waist_joint_index_list_frame = []
         for i in range(len(self.EE_joint_names)):
             ID = self.robot_model.getFrameId(self.EE_frame_names[i], pin.FIXED_JOINT)
             self.end_effector_index_list_frame.append(ID)
             ID = self.robot_model.getJointId(self.EE_joint_names[i])
             self.end_effector_index_list_joint.append(ID)
-            if i < (len(self.EE_joint_names) - 1):
-                ID = self.robot_model.getFrameId(self.hip_joint_names[i], pin.JOINT)
-                self.hip_joint_index_list_frame.append(ID)
+            ID = self.robot_model.getFrameId(self.hip_waist_joint_names[i], pin.JOINT)
+            self.hip_waist_joint_index_list_frame.append(ID)
 
         print(self.end_effector_index_list_frame)
         print(self.end_effector_index_list_joint)
@@ -129,6 +130,25 @@ class RobotModel:
         self.FL_base_pos = self.robot_data.oMf[self.end_effector_index_list_frame[1]].translation
         self.print_ = False
 
+        # hip and waist velocities
+        self.FR_hip_vel = np.array([0,0,0]).reshape(3,1)
+        self.FL_hip_vel = np.array([0,0,0]).reshape(3,1)
+        self.RR_hip_vel = np.array([0,0,0]).reshape(3,1)
+        self.RL_hip_vel = np.array([0,0,0]).reshape(3,1)
+        self.GRIP_waist_vel = np.array([0,0,0]).reshape(3,1)
+        self.hip_waist_vel_list = [self.FR_hip_vel, self.FL_hip_vel, self.RR_hip_vel, self.RL_hip_vel, self.GRIP_waist_vel]
+        self.prev_hip_waist_pos = [0,0,0,0,0]
+
+        # previouse EE velocities
+        self.prev_EE_pos = [0,0,0,0,0]
+
+        # previouse EE_CoM_rot
+        self.prev_EE_CoM_rot = [0,0,0,0,0]
+
+        # previouse trunk velocity
+        self.prev_trunk_ref = np.array([0,0,0])
+        self.old_ref_trunk_rot_matrix = np.zeros((3,3))
+
         self.initialised = False
         self.setInitialState()
         self.initialised = True
@@ -137,10 +157,18 @@ class RobotModel:
         
         self.trunk_base_pos = np.copy(self.robot_data.oMf[self.trunk_frame_index].translation)
 
+        # log previouse states
         self.FR_prev_foot = np.copy(self.robot_data.oMf[self.end_effector_index_list_frame[0]].translation)
         self.FL_prev_foot = np.copy(self.robot_data.oMf[self.end_effector_index_list_frame[1]].translation)
         self.RR_prev_foot = np.copy(self.robot_data.oMf[self.end_effector_index_list_frame[2]].translation)
         self.RL_prev_foot = np.copy(self.robot_data.oMf[self.end_effector_index_list_frame[3]].translation)
+        for i in range(len(self.hip_waist_vel_list)):
+            self.prev_hip_waist_pos[i] = np.copy(self.robot_data.oMf[self.hip_waist_joint_index_list_frame[i]].translation)
+            self.prev_EE_pos[i] = np.copy(self.robot_data.oMf[self.end_effector_index_list_frame[i]].translation)
+            EE_rot = np.copy(self.robot_data.oMf[self.end_effector_index_list_frame[i]].rotation)
+            print("EE rot", EE_rot)
+            hip_waist_rot = np.copy(self.robot_data.oMf[self.hip_waist_joint_index_list_frame[i]].rotation)
+            self.prev_EE_CoM_rot[i] = np.dot(hip_waist_rot.T, EE_rot)
 
         self.prev_trunk_pos = np.copy(self.robot_data.oMf[self.trunk_frame_index].translation)
 
@@ -166,6 +194,14 @@ class RobotModel:
         q = pin.neutral(self.robot_model)
         print(q)
         self.updateState(q, feedback=False)
+        
+        # set default ori
+        self.default_trunk_ori = self.Rot2Euler(self.robot_data.oMf[self.trunk_frame_index].rotation)
+        self.default_EE_ori_list[0] = self.Rot2Euler(self.robot_data.oMf[self.end_effector_index_list_frame[0]].rotation)
+        self.default_EE_ori_list[1] = self.Rot2Euler(self.robot_data.oMf[self.end_effector_index_list_frame[1]].rotation)
+        self.default_EE_ori_list[2] = self.Rot2Euler(self.robot_data.oMf[self.end_effector_index_list_frame[2]].rotation)
+        self.default_EE_ori_list[3] = self.Rot2Euler(self.robot_data.oMf[self.end_effector_index_list_frame[3]].rotation)
+        self.default_EE_ori_list[4] = self.Rot2Euler(self.robot_data.oMf[self.end_effector_index_list_frame[4]].rotation)
 
         # find hip biases
         FR_hip = np.copy(self.robot_data.oMf[self.end_effector_index_list_frame[0]].translation)
@@ -338,9 +374,6 @@ class RobotModel:
         
         height_offset = (FR_height[2] + FL_height[2] + RR_height[2] + RL_height[2])/4
 
-        print("foot", np.copy(self.robot_data.oMf[self.end_effector_index_list_frame[0]].translation))
-        print("hip", np.copy(self.robot_data.oMf[self.hip_joint_index_list_frame[0]].translation))
-        print("trunk", trunk)
 
         joint_config[2] = height_offset + self.foot_radius
         
@@ -413,13 +446,24 @@ class RobotModel:
             self.FL_prev_foot = np.copy(self.robot_data.oMf[self.end_effector_index_list_frame[1]].translation)
             self.RR_prev_foot = np.copy(self.robot_data.oMf[self.end_effector_index_list_frame[2]].translation)
             self.RL_prev_foot = np.copy(self.robot_data.oMf[self.end_effector_index_list_frame[3]].translation)
-        
+        """
         self.default_trunk_ori = self.Rot2Euler(self.robot_data.oMf[self.trunk_frame_index].rotation)
         self.default_EE_ori_list[0] = self.Rot2Euler(self.robot_data.oMf[self.end_effector_index_list_frame[0]].rotation)
         self.default_EE_ori_list[1] = self.Rot2Euler(self.robot_data.oMf[self.end_effector_index_list_frame[1]].rotation)
         self.default_EE_ori_list[2] = self.Rot2Euler(self.robot_data.oMf[self.end_effector_index_list_frame[2]].rotation)
         self.default_EE_ori_list[3] = self.Rot2Euler(self.robot_data.oMf[self.end_effector_index_list_frame[3]].rotation)
         self.default_EE_ori_list[4] = self.Rot2Euler(self.robot_data.oMf[self.end_effector_index_list_frame[4]].rotation)
+        """
+        if self.initialised == True:
+        # calculate hip and waist velocities
+            for i in range(len(self.hip_waist_vel_list)):
+                current_pos = np.copy(self.robot_data.oMf[self.hip_waist_joint_index_list_frame[i]].translation)
+                #print("prev", self.prev_hip_waist_pos[i])
+                #print("current", current_pos)
+                vel = (current_pos - self.prev_hip_waist_pos[i])/self.dt
+                self.hip_waist_vel_list[i] = vel
+                self.prev_hip_waist_pos[i] = current_pos
+                
         
     def jointVelocitiestoConfig(self, joint_vel, updateModel=False): # add floating base stuff
         new_config = pin.integrate(self.robot_model, self.current_joint_config, joint_vel)
@@ -429,12 +473,17 @@ class RobotModel:
             return new_config
 
     def EndEffectorJacobians(self): # This works with the current model configuration
-        self.end_effector_jacobians = np.dot(np.transpose(pin.getFrameJacobian(self.robot_model, self.robot_data, self.end_effector_index_list_frame[0], pin.ReferenceFrame.LOCAL_WORLD_ALIGNED)), self.EE_weight[0])
+        if self.initialised == True:
+            frame = pin.ReferenceFrame.LOCAL_WORLD_ALIGNED
+        else:
+            frame = pin.ReferenceFrame.LOCAL_WORLD_ALIGNED
+            
+        self.end_effector_jacobians = np.dot(np.transpose(pin.getFrameJacobian(self.robot_model, self.robot_data, self.end_effector_index_list_frame[0], frame)), self.EE_weight[0])
         for i in range(len(self.end_effector_index_list_frame)-1):
             if i < 3:
-                J = np.transpose(pin.getFrameJacobian(self.robot_model, self.robot_data, self.end_effector_index_list_frame[i+1], pin.ReferenceFrame.LOCAL_WORLD_ALIGNED))
+                J = np.transpose(pin.getFrameJacobian(self.robot_model, self.robot_data, self.end_effector_index_list_frame[i+1], frame))
             else:
-                J = np.transpose(pin.getFrameJacobian(self.robot_model, self.robot_data, self.end_effector_index_list_frame[i+1], pin.ReferenceFrame.LOCAL_WORLD_ALIGNED))
+                J = np.transpose(pin.getFrameJacobian(self.robot_model, self.robot_data, self.end_effector_index_list_frame[i+1], frame))
             J = np.dot(J, self.EE_weight[i+1])
             self.end_effector_jacobians = np.concatenate((self.end_effector_jacobians, J), axis = 1)
 
@@ -450,7 +499,7 @@ class RobotModel:
         
         for i in range(len(vel_lim)):
             if (np.isinf(vel_lim[i])):
-                vel_lim[i] = 100
+                vel_lim[i] = 10
             if i >= (self.end_effector_index_list_joint[4] - 2 + 6):
                 vel_lim[i] = 0
 
@@ -489,7 +538,7 @@ class RobotModel:
         #C = np.concatenate((C, fill), axis=0)
         #C[0] = 0
         #C[1] = 0
-        C[2] = 0
+        #C[2] = 0
         C[3] = 0
         C[4] = 0
         C[5] = 0
@@ -498,7 +547,7 @@ class RobotModel:
             Jtmp = pin.getFrameJacobian(self.robot_model, self.robot_data, self.end_effector_index_list_frame[i+1], pin.ReferenceFrame.WORLD)#[:3]
             #Jtmp[0] = 0
             #Jtmp[1] = 0
-            Jtmp[2] = 0
+            #Jtmp[2] = 0
             Jtmp[3] = 0
             Jtmp[4] = 0
             Jtmp[5] = 0
@@ -517,8 +566,8 @@ class RobotModel:
         CoM_pos = self.robot_data.com[0]
         FL_pos = self.robot_data.oMf[self.end_effector_index_list_frame[1]].translation # FL (+x,+y) in local coordinates
         RR_pos = self.robot_data.oMf[self.end_effector_index_list_frame[3]].translation # RR (-x,-y) in local coordinates
-        Clb = ((RR_pos - CoM_pos) / self.dt).reshape(C.shape[0])
-        Cub = ((FL_pos - CoM_pos) / self.dt).reshape(C.shape[0])
+        Clb = ((RR_pos - CoM_pos) / self.dt).reshape(C.shape[0]) * 0.1
+        Cub = ((FL_pos - CoM_pos) / self.dt).reshape(C.shape[0]) * 0.1
         return C, Clb, Cub
 
 
@@ -598,7 +647,10 @@ class RobotModel:
                         self.print_ = True
                     else:
                         self.print_ = False
-                    target_list[i] = self.calcTargetVel(target_cartesian_pos[i], self.default_EE_ori_list[i], self.end_effector_index_list_frame[i], self.EE_gains[i])#
+                    if self.initialised == True:
+                        target_list[i] = self.calcTargetVelEE3(target_cartesian_pos[i], self.default_EE_ori_list[i], i, self.EE_gains[i])
+                    else:
+                        target_list[i] = self.calcTargetVelEE(target_cartesian_pos[i], self.default_EE_ori_list[i], i, self.EE_gains[i])
                     self.print_ = False
 
                     
@@ -616,10 +668,10 @@ class RobotModel:
             #self.cartesian_targetsCoM = np.dot(K_cart, (target_cartesian_pos-np.array([self.robot_data.com[0]]).T))
 
     def cartesianTargetTrunk(self, target_cartesian_pos, target_cartesian_vel):
-        if np.sum(target_cartesian_pos) == 0 and np.sum(target_cartesian_vel) == 0:
-            self.cartesian_targetsTrunk = self.calcTargetVel(target_cartesian_pos, self.default_trunk_ori, self.trunk_frame_index, self.trunk_gain)
+        if self.initialised == True:
+            self.cartesian_targetsTrunk = self.calcTargetVelTrunk2(target_cartesian_pos, self.default_trunk_ori, self.trunk_frame_index, self.trunk_gain)
         else:
-            self.cartesian_targetsTrunk = self.calcTargetVel(target_cartesian_pos, self.default_trunk_ori, self.trunk_frame_index, self.trunk_gain)
+            self.cartesian_targetsTrunk = self.calcTargetVelTrunk(target_cartesian_pos, self.default_trunk_ori, self.trunk_frame_index, self.trunk_gain)
 
 
     def posAndVelTargetsCoM(self, objective):
@@ -639,7 +691,7 @@ class RobotModel:
         return planner_pos, planner_vel
 
 
-    def calcTargetVel(self, target_pos, target_rot, frame_id, gain):
+    def calcTargetVelTrunk(self, target_pos, target_rot, frame_id, gain):
         # find the current cartisian position of the end effector
         fk_pos = np.array([self.robot_data.oMf[frame_id].translation]).T
         fk_ori = np.array([self.robot_data.oMf[frame_id].rotation]).T
@@ -660,12 +712,242 @@ class RobotModel:
         # calculate target end effector velocity
         target_vel = des_vel + np.dot(gain, (des_cart - fk_cart))
 
-        if self.print_==True:
-            #print(target_vel.T)
-            #print(self.robot_data.oMf[self.end_effector_index_list_joint[4]])
-            z = 1
+        return target_vel
+
+    def calcTargetVelTrunk2(self, target_pos, target_rot, frame_id, gain):
+        # find the separate position and orientation gain
+        gain_pos = gain[0:3, 0:3]
+        gain_ori = gain[3:, 3:]
+
+        """ Find position velocity"""
+        # calc target position velocity
+        ref_trunk_vel = (target_pos - self.prev_trunk_ref.reshape(3,1))/self.dt
+
+        fk_trunk_pos = np.copy(self.robot_data.oMf[frame_id].translation)
+        pos_vel = ref_trunk_vel + (np.dot(gain_pos, (target_pos - fk_trunk_pos.reshape(3,1))).reshape(3,1)/self.dt)
+
+        #ori_vel = np.array([0,0,0]).reshape(3,1)
+
+        """ Find angular velocity"""
+        # find the quaternion of the trunk frame through forward kinematics
+        fk_trunk_rot = R.from_matrix(np.copy(self.robot_data.oMf[frame_id].rotation))
+        fk_trunk_quat = fk_trunk_rot.as_quat()
+
+        # find the referance trunk quaternion
+        ref_trunk_rotation = R.from_euler('xyz', target_rot.reshape(3,))
+        ref_trunk_rot_matrix = ref_trunk_rotation.as_matrix()
+        ref_trunk_quat = ref_trunk_rotation.as_quat()
+
+        # find the error between the ref quaternion and frame quaternion
+        quat_error = np.zeros((4,))
+        quat_error[0] = (fk_trunk_quat[3]*ref_trunk_quat[0]) - (fk_trunk_quat[0]*ref_trunk_quat[3]) + (fk_trunk_quat[1]*ref_trunk_quat[2]) - (fk_trunk_quat[2]*ref_trunk_quat[1])
+        quat_error[1] = (fk_trunk_quat[3]*ref_trunk_quat[1]) - (fk_trunk_quat[1]*ref_trunk_quat[3]) - (fk_trunk_quat[0]*ref_trunk_quat[2]) + (fk_trunk_quat[2]*ref_trunk_quat[0])
+        quat_error[2] = (fk_trunk_quat[3]*ref_trunk_quat[2]) - (fk_trunk_quat[3]*ref_trunk_quat[2]) + (fk_trunk_quat[0]*ref_trunk_quat[1]) - (fk_trunk_quat[1]*ref_trunk_quat[0])
+        quat_error[3] = (fk_trunk_quat[3]*ref_trunk_quat[3]) + (fk_trunk_quat[0]*ref_trunk_quat[0]) + (fk_trunk_quat[1]*ref_trunk_quat[1]) + (fk_trunk_quat[2]*ref_trunk_quat[2])
+
+        # find angular velocity
+        w = np.zeros((3,))
+        for ii in range(3):
+            w[ii] = -gain_ori[ii,ii] * quat_error[ii]
+
+        skew = np.dot(((ref_trunk_rot_matrix - self.old_ref_trunk_rot_matrix)/self.dt), ref_trunk_rot_matrix)
+        trunk_to_CoM_ori_ref = np.zeros((3,))
+        trunk_to_CoM_ori_ref[0] = skew[2,1]
+        trunk_to_CoM_ori_ref[1] = skew[0,2]
+        trunk_to_CoM_ori_ref[2] = skew[1,0]
+
+        ori_vel = (trunk_to_CoM_ori_ref + w).reshape(3,1)
+
+        ori_vel = w.reshape(3,1)
+
+        # store previouse values
+        self.prev_trunk_ref = target_pos
+        self.old_ref_trunk_rot_matrix = ref_trunk_rot_matrix
+
+        target_vel = np.concatenate((pos_vel, ori_vel), axis=0)
+
 
         return target_vel
+        
+
+
+    def calcTargetVelEE(self, target_pos, target_rot, i, gain):
+        # find the separate position and orientation gain
+        gain_pos = gain[0:3, 0:3]
+        gain_ori = gain[3:, 3:]
+        
+        # find the current cartisian position of the end effector
+        fk_pos = np.array([self.robot_data.oMf[self.end_effector_index_list_frame[i]].translation]).T
+        fk_ori = np.array([self.robot_data.oMf[self.end_effector_index_list_frame[i]].rotation]).T
+        fk_ori = self.Rot2Euler(fk_ori)
+        fk_cart = np.concatenate((fk_pos, fk_ori), axis=0)
+        #fk_cart = self.targetWorldToLocal(fk_cart)
+
+        # find desired cartesian position
+        des_cart = np.concatenate((target_pos, target_rot), axis=0)
+        #des_cart = self.targetWorldToLocal(des_cart)
+
+        # calculate desired velocity
+        pos_vel = (des_cart[:3] - fk_cart[:3]) / self.dt
+        ori_vel = np.array([[0,0,0]]).T
+        des_vel = np.concatenate((pos_vel,ori_vel), axis=0)
+
+        
+        # calculate target end effector velocity
+        target_vel = des_vel + np.dot(gain, (des_cart - fk_cart))
+
+        return target_vel
+
+    def calcTargetVelEE3(self, target_pos, target_rot, i, gain):
+        # find the separate position and orientation gain
+        gain_pos = gain[0:3, 0:3]
+        gain_ori = gain[3:, 3:]
+        
+        #hip or waist rotation matrix and position
+        ref_hip_waist_rot = np.copy(self.robot_data.oMf[self.trunk_frame_index].rotation)
+        ref_hip_waist_pos = np.copy(self.robot_data.oMf[self.hip_waist_joint_index_list_frame[i]].translation)
+
+        """ Find postition velocity"""
+        # calc target position velocity
+        ref_EE_vel = (target_pos - self.prev_EE_pos[i].reshape(3,1))/self.dt
+
+        fk_EE_pos = np.copy(self.robot_data.oMf[self.end_effector_index_list_frame[i]].translation)
+        #pos_vel = (np.dot(ref_hip_waist_rot.T, (ref_EE_vel - self.hip_waist_vel_list[i].reshape(3,1))) + np.dot(gain_pos, (np.dot(ref_hip_waist_rot.T, target_pos) - fk_EE_pos.reshape(3,1)))).reshape(3,1)
+        pos_vel = (np.dot(ref_hip_waist_rot.T, (ref_EE_vel)) + (np.dot(gain_pos, (np.dot(ref_hip_waist_rot.T, target_pos) - fk_EE_pos.reshape(3,1)))).reshape(3,1)/self.dt)
+
+        #ori_vel = np.array([0,0,0]).reshape(3,1)
+
+        """ Find angular velocity"""
+        # find the quaternion of the EE frame through forward kinematics
+        fk_EE_rot = R.from_matrix(np.copy(self.robot_data.oMf[self.end_effector_index_list_frame[i]].rotation))
+        fk_EE_quat = fk_EE_rot.as_quat()
+        
+        # find the quaternion of the EE reference
+        ref_EE_rotation = R.from_euler('xyz', target_rot.reshape(3,))
+        ref_EE_rot = ref_EE_rotation.as_matrix()
+        ref_h_R = np.dot(ref_hip_waist_rot.T, ref_EE_rot)
+        ref_h_R = ref_EE_rot
+        ref_EE_rot_d = R.from_matrix(ref_h_R)
+        ref_EE_quat = ref_EE_rot_d.as_quat()
+
+        # find the error between the ref quaternion and frame quaternion
+        quat_error = np.zeros((4,))
+        quat_error[0] = (fk_EE_quat[3]*ref_EE_quat[0]) - (fk_EE_quat[0]*ref_EE_quat[3]) + (fk_EE_quat[1]*ref_EE_quat[2]) - (fk_EE_quat[2]*ref_EE_quat[1])
+        quat_error[1] = (fk_EE_quat[3]*ref_EE_quat[1]) - (fk_EE_quat[1]*ref_EE_quat[3]) - (fk_EE_quat[0]*ref_EE_quat[2]) + (fk_EE_quat[2]*ref_EE_quat[0])
+        quat_error[2] = (fk_EE_quat[3]*ref_EE_quat[2]) - (ref_EE_quat[3]*fk_EE_quat[2]) + (fk_EE_quat[0]*ref_EE_quat[1]) - (fk_EE_quat[1]*ref_EE_quat[0])
+        quat_error[3] = (fk_EE_quat[3]*ref_EE_quat[3]) + (fk_EE_quat[0]*ref_EE_quat[0]) + (fk_EE_quat[1]*ref_EE_quat[1]) + (fk_EE_quat[2]*ref_EE_quat[2])
+
+        # find angular velocity
+        w = np.zeros((3,))
+        for ii in range(3):
+            w[ii] = -gain_ori[ii,ii] * quat_error[ii]
+
+        # find angular velocity of EE to CoM
+        w_ori_to_CoM_ref = np.zeros((3,))
+        EE_CoM_Rot = np.dot(ref_hip_waist_rot.T, ref_EE_rot)
+        EE_CoM_Rot = ref_EE_rot
+        skew = np.dot(((EE_CoM_Rot - self.prev_EE_CoM_rot[i])/self.dt), EE_CoM_Rot.T)
+        w_ori_to_CoM_ref[0] = skew[2,1]
+        w_ori_to_CoM_ref[1] = skew[0,2]
+        w_ori_to_CoM_ref[2] = skew[1,0]
+
+        # find overall anglular velocity
+        ori_vel = (w_ori_to_CoM_ref + w).reshape(3,1)
+        
+        # store previouse values
+        self.prev_EE_pos[i] = target_pos
+        self.prev_EE_CoM_rot[i] = EE_CoM_Rot
+
+        target_vel = np.concatenate((pos_vel, ori_vel), axis=0)
+
+        return target_vel
+
+        
+    
+
+    def calcTargetVelEE2(self, target_pos, target_rot, i, gain):
+        #print("i", i)
+        # find the separate position and orientation gain
+        gain_pos = gain[0:3, 0:3]
+        gain_ori = gain[3:, 3:]
+        
+        #hip or waist rotation matrix and position
+        ref_hip_waist_rot = np.copy(self.robot_data.oMf[self.hip_waist_joint_index_list_frame[i]].rotation)
+        ref_hip_waist_pos = np.copy(self.robot_data.oMf[self.hip_waist_joint_index_list_frame[i]].translation)
+        #print(ref_hip_waist_pos)
+
+        # calc position velocity
+        ref_EE_vel = (target_pos - self.prev_EE_pos[i].reshape(3,1))/self.dt
+        #if i == 4:
+            #print("target_pos", target_pos.T)
+            #print("prev_pos  ", self.prev_EE_pos[i].T)
+            #print(ref_EE_vel.T)
+
+        # find the position of the EE frame through forward kinematics
+        fk_EE_pos = self.robot_data.oMf[self.end_effector_index_list_frame[i]].translation
+
+        # find the quaternion of the EE frame through forward kinematics
+        fk_EE_rot = R.from_matrix(np.copy(self.robot_data.oMf[self.end_effector_index_list_frame[i]].rotation))
+        fk_EE_quat = fk_EE_rot.as_quat()
+
+        # find the quaternion of the EE reference
+        ref_EE_rotation = R.from_euler('xyz', target_rot.reshape(3,))
+        ref_EE_rot = ref_EE_rotation.as_matrix()
+        ref_h_R = np.dot(ref_hip_waist_rot.T, ref_EE_rot)
+        ref_h_R = ref_EE_rot
+        ref_EE_rot_d = R.from_matrix(ref_h_R)
+        ref_EE_quat = ref_EE_rot_d.as_quat()
+
+        # find the error between the ref quaternion and frame quaternion
+        quat_error = np.zeros((4,))
+        quat_error[0] = (fk_EE_quat[3]*ref_EE_quat[0]) - (fk_EE_quat[0]*ref_EE_quat[3]) + (fk_EE_quat[1]*ref_EE_quat[2]) - (fk_EE_quat[2]*ref_EE_quat[1])
+        quat_error[1] = (fk_EE_quat[3]*ref_EE_quat[1]) - (fk_EE_quat[1]*ref_EE_quat[3]) - (fk_EE_quat[0]*ref_EE_quat[2]) + (fk_EE_quat[2]*ref_EE_quat[0])
+        quat_error[2] = (fk_EE_quat[3]*ref_EE_quat[2]) - (ref_EE_quat[3]*fk_EE_quat[2]) + (fk_EE_quat[0]*ref_EE_quat[1]) - (fk_EE_quat[1]*ref_EE_quat[0])
+        quat_error[3] = (fk_EE_quat[3]*ref_EE_quat[3]) + (fk_EE_quat[0]*ref_EE_quat[0]) + (fk_EE_quat[1]*ref_EE_quat[1]) + (fk_EE_quat[2]*ref_EE_quat[2])
+
+        # find angular velocity
+        w = np.zeros((3,))
+        for ii in range(3):
+            w[ii] = gain_ori[ii,ii] * quat_error[ii]
+
+        # calculate target position velocity
+        
+        #pos_vel = (np.dot(ref_hip_waist_rot.T, (ref_EE_vel - self.hip_waist_vel_list[i].reshape(3,1))) + np.dot(gain_pos, (np.dot(ref_hip_waist_rot.T, (target_pos - ref_hip_waist_pos.reshape(3,1))) - fk_EE_pos.reshape(3,1)))).reshape(3,1)
+        pos_vel = (np.dot(ref_hip_waist_rot, (ref_EE_vel)) + np.dot(gain_pos, (np.dot(ref_hip_waist_rot.T, (target_pos)) - np.dot(ref_hip_waist_rot.T, fk_EE_pos.reshape(3,1))))).reshape(3,1)
+
+        os_vel = ref_EE_vel + np.dot(gain_pos, ((target_pos - fk_EE_pos.reshape(3,1)))).reshape(3,1)
+
+
+        # find angular velocity of EE to CoM
+        w_ori_to_CoM_ref = np.zeros((3,))
+        EE_CoM_Rot = np.dot(ref_hip_waist_rot.T, ref_EE_rot)
+        EE_CoM_Rot = ref_EE_rot
+        skew = np.dot(((EE_CoM_Rot - self.prev_EE_CoM_rot[i])/self.dt), EE_CoM_Rot.T)
+        w_ori_to_CoM_ref[0] = skew[2,1]
+        w_ori_to_CoM_ref[1] = skew[0,2]
+        w_ori_to_CoM_ref[2] = skew[1,0]
+
+        # find overall anglular velocity
+        ori_vel = (w_ori_to_CoM_ref + w).reshape(3,1)
+        #ori_vel = w.reshape(3,1)
+
+        #store old values
+        self.prev_EE_CoM_rot[i] = EE_CoM_Rot
+        self.prev_EE_pos[i] = target_pos
+
+        ori_vel = np.zeros((3,1))
+
+        # find target velocities
+        target_vel = np.concatenate((pos_vel, ori_vel), axis=0)
+
+        #print("i", i)
+        #print(target_vel.T)
+
+        
+
+        return target_vel
+        
+        
 
     def targetWorldToLocal(self, world_target):
         ori_offset = self.Rot2Euler(self.robot_data.oMf[3].rotation)
@@ -748,11 +1030,11 @@ class RobotModel:
                     
                 q[i] = q[i] + deltaq
                 self.updateState(q, feedback=False)
-                J = pin.getJointJacobian(self.robot_model, self.robot_data, joint_id, pin.ReferenceFrame.LOCAL_WORLD_ALIGNED)
+                J = pin.getJointJacobian(self.robot_model, self.robot_data, joint_id, pin.ReferenceFrame.WORLD)
                 f1 = math.sqrt(np.linalg.det(np.dot(J, J.T)))
                 q[i] = q[i] - (deltaq * 2)
                 self.updateState(q, feedback=False)
-                J = pin.getJointJacobian(self.robot_model, self.robot_data, joint_id, pin.ReferenceFrame.LOCAL_WORLD_ALIGNED)
+                J = pin.getJointJacobian(self.robot_model, self.robot_data, joint_id, pin.ReferenceFrame.WORLD)
                 f2 = math.sqrt(np.linalg.det(np.dot(J, J.T)))
                 u.append(0.5*(f1-f2)/deltaq)
 
@@ -926,10 +1208,10 @@ class RobotModel:
         # find the new joint angles from the solved joint velocities
         joint_config = self.jointVelocitiestoConfig(q_vel, False)[7:]
 
-        #self.jointVelocitiestoConfig(q_vel, True)
+        self.jointVelocitiestoConfig(q_vel, True)
 
         # update robot model with new joint and base configuration
-        self.updateState(joint_config, base_config, running=True)
+        #self.updateState(joint_config, base_config, running=True)
 
         # return the new joint configuration
 
@@ -950,10 +1232,10 @@ class RobotModel:
         # cartesian task weights
         self.com_weight = np.identity(3) * 1 # 20#1.2
         self.trunk_weight = np.identity(6) * 450 #15#1
-        self.FL_weight = np.identity(6) * 40 #20#0.8 18 for wx100
-        self.FR_weight = np.identity(6) * 40#0#20#0.8 18 for wx100
-        self.RL_weight = np.identity(6) * 40#20#0.8 18 for wx100
-        self.RR_weight = np.identity(6) * 40#20#0.8 18 for wx100
+        self.FL_weight = np.identity(6) * 4 #20#0.8 18 for wx100
+        self.FR_weight = np.identity(6) * 4#0#20#0.8 18 for wx100
+        self.RL_weight = np.identity(6) * 4#20#0.8 18 for wx100
+        self.RR_weight = np.identity(6) * 4#20#0.8 18 for wx100
         self.grip_weight = np.identity(6) * 400#55 #15#1
         self.EE_weight = [self.FL_weight, self.FR_weight, self.RL_weight, self.RR_weight, self.grip_weight]
 
@@ -982,12 +1264,12 @@ class RobotModel:
     def staticReachMode(self):
         # cartesian task weights
         self.com_weight = np.identity(3) * 1 # 20#1.2
-        self.trunk_weight = np.identity(6) * 150 #15#1
-        self.FL_weight = np.identity(6) * 4 #20#0.8 18 for wx100
-        self.FR_weight = np.identity(6) * 4 #20#0.8 18 for wx100
-        self.RL_weight = np.identity(6) * 4 #20#0.8 18 for wx100
-        self.RR_weight = np.identity(6) * 4 #20#0.8 18 for wx100
-        self.grip_weight = np.identity(6) * 140#55 #15#1
+        self.trunk_weight = np.identity(6) * 300 #15#1
+        self.FL_weight = np.identity(6) * 300#100 #20#0.8 18 for wx100
+        self.FR_weight = np.identity(6) * 300#100 #20#0.8 18 for wx100
+        self.RL_weight = np.identity(6) * 300#100 #20#0.8 18 for wx100
+        self.RR_weight = np.identity(6) * 300#100 #20#0.8 18 for wx100
+        self.grip_weight = np.identity(6) * 150#55 #15#1
         self.EE_weight = [self.FL_weight, self.FR_weight, self.RL_weight, self.RR_weight, self.grip_weight]
 
         # adjust arm weight
@@ -1000,27 +1282,30 @@ class RobotModel:
 
         # cartesian proportional gains
         self.com_gain = np.identity(3)* 1 #1.5#1.631
-        self.trunk_gain = np.identity(6)* 0.001 #0.5425
-        self.FL_gain = np.identity(6) * 0.001
-        #self.FL_gain[0,0] = 50000
-        #self.FL_gain[1,1] = 50000
-        #self.FL_gain[2,2] = 50000
-        self.FR_gain = np.identity(6) * 0.001
-        #self.FR_gain[0,0] = 50000
-        #self.FR_gain[1,1] = 50000
-        #self.FR_gain[2,2] = 50000
-        self.RL_gain = np.identity(6) * 0.001
-        #self.RL_gain[0,0] = 50000
-        #self.RL_gain[1,1] = 50000
-        #self.RL_gain[2,2] = 50000
-        self.RR_gain = np.identity(6) * 0.001
-        #self.RR_gain[0,0] = 50000
-        #self.RR_gain[1,1] = 50000
-        #self.RR_gain[2,2] = 50000
-        self.GRIP_gain = np.identity(6) * 0.001
-        self.GRIP_gain[0,0] = 5000
-        self.GRIP_gain[1,1] = 5000
-        self.GRIP_gain[2,2] = 5000
+        self.trunk_gain = np.identity(6)* 10 #0.5425
+        self.trunk_gain[0,0] = 0.02
+        self.trunk_gain[1,1] = 0.02
+        self.trunk_gain[2,2] = 0.02
+        self.FL_gain = np.identity(6) * 1
+        self.FL_gain[0,0] = 10
+        self.FL_gain[1,1] = 10
+        self.FL_gain[2,2] = 10
+        self.FR_gain = np.identity(6) * 1
+        self.FR_gain[0,0] = 10
+        self.FR_gain[1,1] = 10
+        self.FR_gain[2,2] = 10
+        self.RL_gain = np.identity(6) * 1
+        self.RL_gain[0,0] = 10
+        self.RL_gain[1,1] = 10
+        self.RL_gain[2,2] = 10
+        self.RR_gain = np.identity(6) * 1
+        self.RR_gain[0,0] = 10
+        self.RR_gain[1,1] = 10
+        self.RR_gain[2,2] = 10
+        self.GRIP_gain = np.identity(6) * 1
+        self.GRIP_gain[0,0] = 2
+        self.GRIP_gain[1,1] = 2
+        self.GRIP_gain[2,2] = 2
         #self.GRIP_gain[1,1] = 5000
         self.EE_gains = [self.FL_gain, self.FR_gain, self.RL_gain, self.RR_gain, self.GRIP_gain]
     
