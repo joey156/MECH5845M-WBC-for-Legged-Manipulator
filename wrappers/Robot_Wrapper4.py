@@ -6,6 +6,9 @@ import time
 from QP_Wrapper import QP
 from klampt.model import trajectory
 from PID_Controller import PID
+import sys
+
+np.set_printoptions(threshold=sys.maxsize)
 
 large_width = 400
 np.set_printoptions(linewidth=large_width)
@@ -55,37 +58,47 @@ class RobotModel:
             self.foot_radius = self.geom_model.geometryObjects[8].geometry.radius
 
         """ Find arm range """
+        # set a neutral configuration
+        self.EE_frame_pos = [0,0,0,0,0]
+        self.default_trunk_ori = np.array([[0,0,0]]).T
+        self.default_EE_ori_list = [np.array([[0,0,0]]).T, np.array([[0,0,0]]).T, np.array([[0,0,0]]).T, np.array([[0,0,0]]).T, np.array([[0,0,0]]).T]
+        q = pin.neutral(self.robot_model)
+        self.updateState(q, feedback=False)
         arm_base_placement = np.copy(self.robot_data.oMf[self.arm_base_frame_id].translation)
         gripper_placement = np.copy(self.robot_data.oMf[self.end_effector_index_list_frame[4]].translation)
         self.arm_reach = np.sum(gripper_placement - arm_base_placement)
         
         """ Set weights """
         # cartesian task DoF weighting matrix
-        self.trunk_weight = np.identity(6) * 125
-        self.FL_weight = np.identity(6) * 4 
-        self.FR_weight = np.identity(6) * 4
-        self.RL_weight = np.identity(6) * 4 
-        self.RR_weight = np.identity(6) * 4 
-        self.grip_weight = np.identity(6) * 120 * self.arm_reach
-        self.EE_weight = [self.FL_weight, self.FR_weight, self.RL_weight, self.RR_weight, self.grip_weight]
+        self.trunk_weight = np.identity(6) * 100000#50
+        self.FR_weight = np.identity(6) * 10000#400
+        self.FL_weight = np.identity(6) * 10000#400
+        self.RR_weight = np.identity(6) * 10000#400
+        self.RL_weight = np.identity(6) * 10000#400
+        self.grip_weight = np.identity(6) * 10000#60 * self.arm_reach
+        self.EE_weight = [self.FR_weight, self.FL_weight, self.RR_weight, self.RL_weight, self.grip_weight]
         self.DoF_W = np.zeros((6*len(self.end_effector_index_list_frame), 6*len(self.end_effector_index_list_frame)))
         for i in range(len(self.end_effector_index_list_frame)):
             self.DoF_W[i*6:(i+1)*6, i*6:(i+1)*6] = self.EE_weight[i]
 
         # task weights
-        self.cart_task_weight_FR = 1
-        self.cart_task_weight_FL = 1
-        self.cart_task_weight_RR = 1
-        self.cart_task_weight_RL = 1
-        self.cart_task_weight_GRIP = 1
-        self.cart_task_weight_Trunk = 1
+        self.cart_task_weight_FR = 10
+        self.cart_task_weight_FL = 10
+        self.cart_task_weight_RR = 10
+        self.cart_task_weight_RL = 10
+        self.cart_task_weight_GRIP = 1000
+        self.cart_task_weight_Trunk = 100
         self.cart_task_weight_EE_list = [self.cart_task_weight_FR, self.cart_task_weight_FL, self.cart_task_weight_RR, self.cart_task_weight_RL, self.cart_task_weight_GRIP]
-        self.joint_task_weight = 1
+        self.joint_task_weight = 0.05
 
         # identify which tasks are active
         self.task_active_EE = False
         self.task_active_Trunk = False
         self.task_active_Joint = False
+
+        # identify which constraints are active
+        self.const_active_foot = False
+        self.const_active_CoM = False
 
         # step time parameters
         self.previous_time = 0
@@ -93,18 +106,18 @@ class RobotModel:
         self.dt = 0.002
 
         # Cartesian task proportional gains
-        self.trunk_gain = np.identity(6)* 0.5
-        self.FL_gain = np.identity(6) * 0.5
-        self.FR_gain = np.identity(6) * 0.5
-        self.RL_gain = np.identity(6) * 0.5
-        self.RR_gain = np.identity(6) * 0.5
-        self.GRIP_gain = np.identity(6) * 0.5
+        self.trunk_gain = np.identity(6)* 1
+        self.FL_gain = np.identity(6) * 1
+        self.FR_gain = np.identity(6) * 1
+        self.RL_gain = np.identity(6) * 1
+        self.RR_gain = np.identity(6) * 1
+        self.GRIP_gain = np.identity(6) * 1
         self.EE_gains = [self.FL_gain, self.FR_gain, self.RL_gain, self.RR_gain, self.GRIP_gain]
 
         """ Set peliminary statuses, targets and values """
         # set initial targets
         self.default_trunk_ori = np.array([[0,0,0]]).T
-        self.default_EE_ori_list = [np.array([[0,0,0]]).T, np.array([[0,0,0]]).T, np.array([[0,0,0]]).T, np.array([[0,0,0]]).T, np.array([[0,0,0]]).T]#
+        self.default_EE_ori_list = [np.array([[0,0,0]]).T, np.array([[0,0,0]]).T, np.array([[0,0,0]]).T, np.array([[0,0,0]]).T, np.array([[0,0,0]]).T]
         
         # set initial trunk velocity
         self.prev_trunk_ref = np.array([0,0,0])
@@ -132,11 +145,18 @@ class RobotModel:
         self.trunk_B = 0
 
         """ Set initail state """
-        self.setInitailState()
+        self.setInitialState()
         self.initialised = True
         self.FL_base_pos = np.copy(self.robot_data.oMf[self.end_effector_index_list_frame[1]].translation)
         self.trunk_base_pos = np.copy(self.robot_data.oMf[self.trunk_frame_index].translation)
         self.prev_trunk_pos = np.copy(self.robot_data.oMf[self.trunk_frame_index].translation)
+
+        # log previous states
+        for i in range(len(self.prev_EE_pos)):
+            self.prev_EE_pos[i] = np.copy(self.robot_data.oMf[self.end_effector_index_list_frame[i]].translation)
+            EE_rot = np.copy(self.robot_data.oMf[self.end_effector_index_list_frame[i]].rotation)
+            hip_waist_rot = np.copy(self.robot_data.oMf[self.hip_waist_joint_index_list_frame[i]].rotation)
+            self.prev_EE_CoM_rot[i] = np.dot(hip_waist_rot.T, EE_rot)
 
 
     def setTasks(self, EE=False, Trunk=False, Joint=False):
@@ -145,11 +165,34 @@ class RobotModel:
         self.task_active_Joint = Joint
 
 
+    def setConstraints(self, foot=False, CoM=False):
+        self.const_active_foot = foot
+        self.const_active_CoM = CoM
+
+
     def setInitialState(self):
 
         # set a neutral configuration
         q = pin.neutral(self.robot_model)
+        """
+        for i in range(self.n_velocity_dimensions):
+            if q[i] < self.robot_model.lowerPositionLimit[i]:
+                q[i] = q[i]#self.robot_model.lowerPositionLimit[i]
+                print(q[i])
+                
+            if q[i] > self.robot_model.upperPositionLimit[i]:
+                q[i] = self.robot_model.upperPositionLimit[i]
+                #print(q[i])
+        """
+        
         self.updateState(q, feedback=False)
+
+        # log previous states
+        for i in range(len(self.prev_EE_pos)):
+            self.prev_EE_pos[i] = np.copy(self.robot_data.oMf[self.end_effector_index_list_frame[i]].translation)
+            EE_rot = np.copy(self.robot_data.oMf[self.end_effector_index_list_frame[i]].rotation)
+            hip_waist_rot = np.copy(self.robot_data.oMf[self.hip_waist_joint_index_list_frame[i]].rotation)
+            self.prev_EE_CoM_rot[i] = np.dot(hip_waist_rot.T, EE_rot)
 
         # set default EE and trunk orientation
         self.default_trunk_ori = R.from_matrix(self.robot_data.oMf[self.trunk_frame_index].rotation)
@@ -166,10 +209,10 @@ class RobotModel:
         multiplier_F = np.identity(3)
         multiplier_R = np.identity(3)
         multiplier_G = np.identity(3)
-        multiplier_F[2,2] = 0.7 #0.65
+        multiplier_F[2,2] = 0.65 #0.65
         multiplier_F[0,0] = 0.8
-        multiplier_R[2,2] = 0.7 #0.65
-        multiplier_R[0,0] = 1.1
+        multiplier_R[2,2] = 0.65 #0.65
+        multiplier_R[0,0] = 1.2
         multiplier_G[2,2] = 2.5 #2.8 #0.7
         EE_G_pos_2 = EE_target_pos[4].reshape((3,)).tolist()
         EE_G_pos_2[2] = self.robot_data.oMi[self.arm_base_id].translation[2]
@@ -188,10 +231,10 @@ class RobotModel:
         EE_RL_traj = trajectory.Trajectory(milestones=EE_RL_milestones)
         EE_RR_traj = trajectory.Trajectory(milestones=EE_RR_milestones)
         EE_G_traj = trajectory.Trajectory(milestones=EE_G_milestones)
-        EE_traj = [EE_FL_traj, EE_FR_traj, EE_RL_traj, EE_RR_traj, EE_G_traj]
+        EE_traj = [EE_FR_traj, EE_FL_traj, EE_RR_traj, EE_RL_traj, EE_G_traj]
 
         # select the tasks that are active
-        self.setTasks(EE=True, Trunk=True, Joint=False)
+        self.setTasks(EE=True, Trunk=True, Joint=True)
 
         # set the trajectory interval
         trajectory_interval = np.arange(0,len(EE_FR_milestones), 0.001).tolist()
@@ -211,35 +254,45 @@ class RobotModel:
             self.RL_target_cartesian_pos = EE_target_pos[3]
 
             # find joint limits
-            lower_vel_lim, upper_vel_lim = self.jointVelLimitsArray(True)
-            lower_pos_lim, upper_pos_lim = self.jointPosLimitsArray(True)
-            lb = np.concatenate((lower_vel_lim.T, lower_pos_lim), axis=0).reshape(((self.n_velocity_dimensions*2),))
-            ub = np.concatenate((upper_vel_lim.T, upper_pos_lim), axis=0).reshape(((self.n_velocity_dimensions*2),))
-
+            #lb, ub = self.findJointConstraints()
+            
+            lb, ub = self.jointVelLimitsArray()
+            lb = lb.reshape(self.n_velocity_dimensions,)
+            ub = ub.reshape(self.n_velocity_dimensions,)
+            """
+            lb, ub = self.jointPosLimitsArray()
+            lb = lb.reshape(self.n_velocity_dimensions,)
+            ub = ub.reshape(self.n_velocity_dimensions,)
+            """
+            #print(ub)
             # find A and b for QP
             A = self.qpA()
+            #print(EE_target_pos)
+            #print(A)
             b = self.qpb(EE_target_pos, Trunk_target_pos).reshape((A.shape[0],))
+            #print(b.T)
 
             # solve QP
             qp = QP(A, b, lb, ub, n_of_velocity_dimensions=self.n_velocity_dimensions)
             q_vel = qp.solveQP()
+            #print("qpvel", q_vel)
 
             # find the new joint angles from teh QP optimised joint velocities
-            self.jointVelociiestoConfig(q_vel, True)
+            self.jointVelocitiestoConfig(q_vel, True)
 
         # reset base orientation
         for i in range(len(self.current_joint_config)):
             if i < 6 and i > 2:
-                self.current _joint_config[i] = 0
+                self.current_joint_config[i] = 0
 
         joint_config = self.current_joint_config
         self.updateState(joint_config, feedback=False)
 
         # find and set world position of the trunk
-        height_offset = (self.EE_frame_pos[0][2], self.EE_frame_pos[1][2], self.EE_frame_pos[2][2], self.EE_frame_pos[3][2])/4
+        height_offset = (-self.EE_frame_pos[0][2] - self.EE_frame_pos[1][2] - self.EE_frame_pos[2][2] - self.EE_frame_pos[3][2])/4
         joint_config[2] = height_offset + self.foot_radius
         self.updateState(joint_config, feedback=False)
-        joint_config = self.current_jointconfig[7:]
+        joint_config = self.current_joint_config[7:]
         
         self.FL_leg = joint_config[0:3]
         self.FR_leg = joint_config[3:6]
@@ -255,18 +308,19 @@ class RobotModel:
 
     def updateState(self, joint_config, base_config=0, feedback=True, running=False):
         if feedback == True and running == True:
-            config = np.concatenate((base_config, joint_config), axis-0)
+            config = np.concatenate((base_config, joint_config), axis=0)
 
         else:
             config = joint_config
 
         # update robot state
+        #print("config", joint_config)
         pin.forwardKinematics(self.robot_model, self.robot_data, config)
         self.previous_joint_config = self.current_joint_config
         self.current_joint_config = config
         self.J = pin.computeJointJacobians(self.robot_model, self.robot_data, config)
         pin.framesForwardKinematics(self.robot_model, self.robot_data, config)
-        pin.updateFramePlacements(self.robot_model, self,robot_data)
+        pin.updateFramePlacements(self.robot_model, self.robot_data)
 
         # store frame placements
         self.trunk_frame_pos = np.copy(self.robot_data.oMf[self.trunk_frame_index].translation)
@@ -279,7 +333,7 @@ class RobotModel:
             config = np.concatenate((base_pos, self.current_joint_config[3:]), axis=0)
 
             # update robot state
-            pin.forwardKinematics(self,.robot_model, self.robot_data, config)
+            pin.forwardKinematics(self.robot_model, self.robot_data, config)
             self.previous_joint_config = self.current_joint_config
             self.current_joint_config = config
             self.J = pin.computeJointJacobians(self.robot_model, self.robot_data, config)
@@ -300,7 +354,10 @@ class RobotModel:
     def jointVelocitiestoConfig(self, joint_vel, update_model=False):
         new_config = pin.integrate(self.robot_model, self.current_joint_config, joint_vel)
         if update_model == True:
-            self.updateState(new_config, feedback=False, running=False)
+            if self.initialised == True:
+                self.updateState(new_config, feedback=False, running=True)
+            if self.initialised == False:
+                self.updateState(new_config, feedback=False, running=False)
         if update_model == False:
             return new_config
         
@@ -324,10 +381,12 @@ class RobotModel:
             self.end_effector_A = np.concatenate((self.end_effector_A, J), axis = 1)
 
         self.end_effector_A = np.dot(self.DoF_W, self.end_effector_A.T)
+        #print(self.DoF_W)
 
 
     def trunkA(self):
         self.trunk_A = pin.getFrameJacobian(self.robot_model, self.robot_data, self.trunk_frame_index, pin.ReferenceFrame.WORLD)
+        self.trunk_A = np.dot(self.trunk_weight, self.trunk_A)
         self.trunk_A = self.trunk_A * self.cart_task_weight_Trunk
 
 
@@ -335,7 +394,7 @@ class RobotModel:
         vel_lim = self.robot_model.velocityLimit
         
         for i in range(len(vel_lim)):
-            if (np.isinf(vel_lim[i])):
+            if i < 7:
                 vel_lim[i] = 10
             if i >= (self.end_effector_index_list_joint[4] - 2 + 6):
                 vel_lim[i] = 0
@@ -349,7 +408,7 @@ class RobotModel:
     def jointPosLimitsArray(self, initial_config=False): # returns an array for the upper and lower joint position limits, these have been turned into velocity limits
         for i in range(len(self.robot_model.lowerPositionLimit)):
             if i < 7:
-                self.robot_model.lowerPositionLimit[i] = 10
+                self.robot_model.lowerPositionLimit[i] = -10
             if i >= (self.end_effector_index_list_joint[4] - 2 + 7):
                 self.robot_model.lowerPositionLimit[i] = 0
         
@@ -361,16 +420,105 @@ class RobotModel:
             
         lower_pos_lim = self.robot_model.lowerPositionLimit[np.newaxis].T
         upper_pos_lim = self.robot_model.upperPositionLimit[np.newaxis].T
-        K_lim = np.identity(self.n_configuration_dimensions)*0.5
+        K_lim = np.identity(self.n_configuration_dimensions)
         current_config = self.current_joint_config[np.newaxis].T
-        lower_pos_lim = np.dot(K_lim,(lower_pos_lim - current_config))
-        upper_pos_lim = np.dot(K_lim,(upper_pos_lim - current_config))/self.sampling_time
-        lower_pos_lim = lower_pos_lim/self.sampling_time
-        lower_pos_lim = np.delete(lower_pos_lim, 0, 0)
-        upper_pos_lim = np.delete(upper_pos_lim, 0, 0)
+        lower_pos_lim = np.dot(K_lim,(lower_pos_lim - current_config))/self.step_time
+        upper_pos_lim = np.dot(K_lim,(upper_pos_lim - current_config))/self.step_time
+        lower_pos_lim = np.delete(lower_pos_lim, 6, 0)
+        upper_pos_lim = np.delete(upper_pos_lim, 6, 0)
+
+        for i in range(len(lower_pos_lim)):
+            if i < 6:
+                lower_pos_lim[i] = -10
+                upper_pos_lim[i] = 10
+            if i >= (self.end_effector_index_list_joint[4] - 2 + 6):
+                lower_pos_lim[i] = 0
+                upper_pos_lim[i] = 0
+
+        #print(lower_pos_lim.T)
         
         return lower_pos_lim, upper_pos_lim
 
+
+    def findJointConstraints(self):
+        lb_pos, ub_pos = self.jointPosLimitsArray()
+        lb_vel, ub_vel = self.jointVelLimitsArray()
+
+        lb_vel = lb_vel.T
+        ub_vel = ub_vel.T
+
+        lb = np.zeros((lb_pos.shape[0],))
+        ub = np.zeros((ub_pos.shape[0],))
+
+        for i in range(len(lb)):
+            if lb_pos[i] <= lb_vel[i]:
+                lb[i] = lb_vel[i]
+                
+            else:
+                lb[i] = lb_pos[i]
+                
+            if ub_pos[i] >= ub_vel[i]:
+                ub[i] = ub_vel[i]
+
+            else:
+                ub[i] = ub_pos[i]
+
+        #print("lb", lb)
+        #print("ub", ub)
+
+        return lb, ub
+
+
+    def velDamperJointConstraints(self):
+        # define constants
+        damping_coef = 0.1
+        qi = 0.026
+        qs = 0.0052
+
+        # initialise joint limit arrays
+        lb = np.zeros((self.n_velocity_dimensions,))
+        ub = np.zeros((self.n_velocity_dimensions,))
+
+        # store limits
+        lower_pos_lim = np.copy(self.robot_model.lowerPositionLimit)
+        upper_pos_lim = np.copy(self.robot_model.upperPositionLimit)
+        vel_lim = self.robot_model.velocityLimit
+
+        # adjust position limits
+        for i in range(len(lower_pos_lim)):
+            if i < 7:
+                lower_pos_lim[i] = -10
+                upper_pos_lim[i] = 10
+            if i >= (self.end_effector_index_list_joint[4] - 2 + 7):
+                lower_pos_lim[i] = 0
+                upper_pos_lim[i] = 0
+        lower_pos_lim = np.delete(lower_pos_lim, 6)
+        upper_pos_lim = np.delete(upper_pos_lim, 6)
+
+        # apply velocity damper method
+        for i in range(len(lower_pos_lim)):
+            if (self.current_joint_config[i] - lower_pos_lim[i]) <= qi:
+                lb[i] = -damping_coef * (self.current_joint_config[i] - lower_pos_lim[i] - qs) / (qi - qs)
+                if lb[i] > vel_lim[i]:
+                    lb[i] = vel_lim[i]
+            else:
+                lb[i] = -vel_lim[i]
+            if (upper_pos_lim[i] - self.current_joint_config[i]) <= qi:
+                ub[i] = damping_coef * (upper_pos_lim[i] - self.current_joint_config[i] - qs) / (qi - qs)
+                if ub[i] < -vel_lim[i]:
+                    ub[i] = -vel_lim[i]
+            else:
+                ub[i] = vel_lim[i]
+
+        for i in range(len(lb)):
+            if i >= (self.end_effector_index_list_joint[4] - 2 + 6):
+                lb[i] = 0
+                ub[i] = 0
+
+        print(lb)
+        print(ub)
+
+        return lb, ub
 
 
     def footConstraint(self):
@@ -394,7 +542,7 @@ class RobotModel:
             Jtmp[5] = 0
             #Jtmp = np.concatenate((Jtmp, fill), axis=0)
             C = np.concatenate((C, Jtmp), axis=0)
-        C = np.concatenate((C, np.zeros((6, self.n_velocity_dimensions))), axis=0)
+        #C = np.concatenate((C, np.zeros((6, self.n_velocity_dimensions))), axis=0)
         Clb = np.zeros(C.shape[0]).reshape((C.shape[0],))
         Cub = np.zeros(C.shape[0]).reshape((C.shape[0],))
         
@@ -407,19 +555,41 @@ class RobotModel:
         CoM_pos = self.robot_data.com[0]
         FL_pos = self.EE_frame_pos[1] # FL (+x,+y) in local coordinates
         RR_pos = self.EE_frame_pos[2] # RR (-x,-y) in local coordinates
-        Clb = ((RR_pos - CoM_pos) / self.dt).reshape(C.shape[0]) * 0.5
-        Cub = ((FL_pos - CoM_pos) / self.dt).reshape(C.shape[0]) * 0.5
+        Clb = ((RR_pos - CoM_pos) / self.dt).reshape(C.shape[0])
+        Clb[2] = 0
+        Cub = ((FL_pos - CoM_pos) / self.dt).reshape(C.shape[0])
+        Cub[2] = 0
         return C, Clb, Cub   
 
 
     def findConstraints(self):
-        C, Clb, Cub = self.footConstraint()
-        D, Dlb, Dub = self.CoMConstraint()
+        constraints_dict = {"C":[], "Clb":[], "Cub":[]}
+        n_of_constraints = 0
+        
+        if self.const_active_foot == True:
+            C, Clb, Cub = self.footConstraint()
+            constraints_dict["C"].append(C)
+            constraints_dict["Clb"].append(Clb)
+            constraints_dict["Cub"].append(Cub)
+            n_of_constraints = n_of_constraints + 1
 
-        C = np.concatenate((C, D), axis=0)
-        Clb = np.concatenate((Clb, Dlb), axis=0).reshape((C.shape[0],))
-        Cub = np.concatenate((Cub, Dub), axis=0).reshape((C.shape[0],))
+        if self.const_active_CoM == True:
+            C, Clb, Cub = self.CoMConstraint()
+            constraints_dict["C"].append(C)
+            constraints_dict["Clb"].append(Clb)
+            constraints_dict["Cub"].append(Cub)
+            n_of_constraints = n_of_constraints + 1
 
+        if n_of_constraints > 0:
+            C = constraints_dict["C"][0]
+            Clb = constraints_dict["Clb"][0]
+            Cub = constraints_dict["Cub"][0]
+            
+        for i in range(n_of_constraints-1):
+            C = np.concatenate((C, constraints_dict["C"][i+1]), axis=0)
+            Clb = np.concatenate((Clb, constraints_dict["Clb"][i+1]), axis=0)
+            Cub = np.concatenate((Cub, constraints_dict["Cub"][i+1]), axis=0)
+            
         return C.T, Clb, Cub
 
 
@@ -428,11 +598,11 @@ class RobotModel:
         A_list = []
 
         # find the jacobains for the active tasks
-        if self.taskActiveEE == True:
+        if self.task_active_EE == True:
             self.endEffectorA()
             A_list.append(self.end_effector_A)
 
-        if self.taskActiveTrunk == True:
+        if self.task_active_Trunk == True:
             self.trunkA()
             A_list.append(self.trunk_A)
 
@@ -468,7 +638,7 @@ class RobotModel:
                         
                     self.print_ = False
 
-                    
+            #print(target_list)
             self.end_effector_B = target_list[0]
             for i in range(len(target_list)-1):
                 self.end_effector_B = np.concatenate((self.end_effector_B,target_list[i+1]), axis=0)
@@ -490,9 +660,10 @@ class RobotModel:
         fk_ori = np.array([self.robot_data.oMf[frame_id].rotation]).T
         fk_ori = self.Rot2Euler(fk_ori)
         fk_cart = np.concatenate((fk_pos, fk_ori), axis=0)
+        #print("TRUNK", fk_pos.T)
 
         # find desired cartesian position
-        des_cart = np.concatenate((target_pos, target_rot), axis=0)
+        des_cart = np.concatenate((target_pos.reshape(3,1), target_rot), axis=0)
 
         # calculate desired velocity
         pos_vel = (des_cart[:3] - fk_cart[:3]) / self.dt
@@ -502,6 +673,7 @@ class RobotModel:
         
         # calculate target end effector velocity
         target_vel = des_vel + np.dot(gain, (des_cart - fk_cart))
+        #print(target_vel.T)
 
         return target_vel
 
@@ -516,7 +688,7 @@ class RobotModel:
         ref_trunk_vel = (target_pos - self.prev_trunk_ref.reshape(3,1))/self.dt
 
         fk_trunk_pos = np.copy(self.robot_data.oMf[frame_id].translation)
-        pos_vel = ref_trunk_vel + (np.dot(gain_pos, (target_pos - fk_trunk_pos.reshape(3,1))).reshape(3,1)/self.dt)
+        pos_vel = ref_trunk_vel + (np.dot(gain_pos, (target_pos - fk_trunk_pos.reshape(3,1)).reshape(3,1)/self.dt))
 
         #ori_vel = np.array([0,0,0]).reshape(3,1)
 
@@ -564,15 +736,17 @@ class RobotModel:
 
 
     def calcTargetVelEE(self, target_pos, target_rot, i, gain):
+        #print(target_pos)
         # find the separate position and orientation gain
         gain_pos = gain[0:3, 0:3]
         gain_ori = gain[3:, 3:]
         
         # find the current cartisian position of the end effector
-        fk_pos = np.array([self.robot_data.oMf[self.end_effector_index_list_frame[i]].translation]).T
-        fk_ori = np.array([self.robot_data.oMf[self.end_effector_index_list_frame[i]].rotation]).T
+        fk_pos = np.copy(np.array([self.robot_data.oMf[self.end_effector_index_list_frame[i]].translation])).T
+        fk_ori = np.copy(np.array([self.robot_data.oMf[self.end_effector_index_list_frame[i]].rotation])).T
         fk_ori = self.Rot2Euler(fk_ori)
         fk_cart = np.concatenate((fk_pos, fk_ori), axis=0)
+        
 
         # find desired cartesian position
         des_cart = np.concatenate((target_pos, target_rot), axis=0)
@@ -585,7 +759,12 @@ class RobotModel:
         
         # calculate target end effector velocity
         target_vel = des_vel + np.dot(gain, (des_cart - fk_cart))
-
+        """
+        if i == 4:
+            print("fk_cart", fk_cart.T)
+            print("des_cart", des_cart.T)
+            print("target_vel", target_vel.T)
+        """
         return target_vel
 
 
@@ -602,10 +781,27 @@ class RobotModel:
         # calc target position velocity
         ref_EE_vel = (target_pos - self.prev_EE_pos[i].reshape(3,1))/self.dt
 
-        fk_EE_pos = np.copy(self.robot_data.oMf[self.end_effector_index_list_frame[i]].translation)
-        #pos_vel = (np.dot(ref_hip_waist_rot.T, (ref_EE_vel - self.hip_waist_vel_list[i].reshape(3,1))) + np.dot(gain_pos, (np.dot(ref_hip_waist_rot.T, target_pos) - fk_EE_pos.reshape(3,1)))).reshape(3,1)
-        pos_vel = (np.dot(ref_hip_waist_rot.T, (ref_EE_vel)) + (np.dot(gain_pos, (np.dot(ref_hip_waist_rot.T, target_pos) - np.dot(ref_hip_waist_rot.T, fk_EE_pos.reshape(3,1))))).reshape(3,1)/self.dt)
 
+        fk_EE_pos = self.EE_frame_pos[i]
+        #pos_vel = (np.dot(ref_hip_waist_rot.T, (ref_EE_vel - self.hip_waist_vel_list[i].reshape(3,1))) + np.dot(gain_pos, (np.dot(ref_hip_waist_rot.T, target_pos) - fk_EE_pos.reshape(3,1)))).reshape(3,1)
+        #pos_vel = (np.dot(ref_hip_waist_rot.T, (ref_EE_vel))) + (np.dot(gain_pos, ((np.dot(ref_hip_waist_rot.T, target_pos) - np.dot(ref_hip_waist_rot.T, fk_EE_pos.reshape(3,1))).reshape(3,1)/self.dt)))
+        pos_vel = (np.dot(ref_hip_waist_rot.T, (ref_EE_vel))) + (np.dot(gain_pos, ((np.dot(ref_hip_waist_rot.T, target_pos) - fk_EE_pos.reshape(3,1)).reshape(3,1)/self.dt)))
+        #pos_vel = (np.dot(ref_hip_waist_rot.T, (ref_EE_vel))) + (np.dot(gain_pos, ((target_pos - fk_EE_pos.reshape(3,1))/self.dt))) # ((np.dot(gain_pos, (target_pos - fk_EE_pos.reshape(3,1)))).reshape(3,1)/self.dt)
+
+        #if i == 4 and self.initialised == True:
+        #    print(pos_vel)
+        """
+        if i == 4 and self.initialised == True:
+            #print("trunkps", np.copy(self.robot_data.oMf[self.trunk_frame_index].translation))
+            #print("gjoint", np.copy(self.robot_data.oMi[self.end_effector_index_list_joint[4]].translation))
+            print("prev_v", self.prev_EE_pos[i])
+            print("fk _pos", fk_EE_pos.T)
+            print("ref_pos", target_pos.T)
+            print("ref_vel", ref_EE_vel.T)
+            print("targetv", np.dot(ref_hip_waist_rot.T, (ref_EE_vel)).T)
+            print("targetp", (np.dot(gain_pos, ((np.dot(ref_hip_waist_rot, target_pos) - fk_EE_pos.reshape(3,1)).reshape(3,1)/self.dt))).T)
+            print("pos_vel", pos_vel.T)
+        """
         #ori_vel = np.array([0,0,0]).reshape(3,1)
 
         """ Find angular velocity"""
@@ -651,6 +847,7 @@ class RobotModel:
 
         target_vel = np.concatenate((pos_vel, ori_vel), axis=0)
 
+
         return target_vel
         
 
@@ -659,11 +856,11 @@ class RobotModel:
         target_list = []
 
         # for the active tasks find their targets
-        if self.taskActiveEE == True:
+        if self.task_active_EE == True:
             self.EndEffectorB(target_cartesian_pos_EE)
             target_list.append(self.end_effector_B)
 
-        if self.taskActiveTrunk == True:
+        if self.task_active_Trunk == True:
             self.TrunkB(target_cartesian_pos_trunk)
             target_list.append(self.trunk_B)
 
@@ -690,15 +887,15 @@ class RobotModel:
     def qpJointb(self):
 
         # Tikhonov Regularization (default)
-        if self.taskActiveJoint == True:
+        if self.task_active_Joint == True:
             u = np.zeros((self.n_velocity_dimensions, 1))
 
         # eleminate high frequency oscillations
-        if self.taskActiveJoint == "PREV":
+        if self.task_active_Joint == "PREV":
             u = np.delete(self.current_joint_config, 6).reshape((self.n_velocity_dimensions, 1))
 
         # manipulability gradient to reduce singularity risk
-        if self.taskActiveJoint == "MANI":
+        if self.task_active_Joint == "MANI":
             u = []
             q = np.copy(self.current_joint_config)
             deltaq = 0.0002
@@ -735,8 +932,10 @@ class RobotModel:
 
         A = self.qpCartesianA()
 
-        if self.taskActiveJoint == True or self.taskActiveJoint == "PREV" or self.taskActiveJoint == "MANI":
-            A = np.concatenate((A, self.jointTaskA), axis=0)
+        #print(A)
+
+        if self.task_active_Joint == True or self.task_active_Joint == "PREV" or self.task_active_Joint == "MANI":
+            A = np.concatenate((A, self.qpJointA()), axis=0)
 
         return A
 
@@ -745,9 +944,12 @@ class RobotModel:
         
         b = self.qpCartesianB(target_cartesian_pos_EE, target_cartesian_pos_trunk)
         
-        if self.taskActiveJoint == True or self.taskActiveJoint == "PREV" or self.taskActiveJoint == "MANI":
+        if self.task_active_Joint == True or self.task_active_Joint == "PREV" or self.task_active_Joint == "MANI":
 
             b = np.concatenate((b, self.qpJointb()), axis=0)
+
+        #print(b.reshape(1,b.shape[0]))
+        #print(b.shape)
             
         return b    
 
@@ -793,17 +995,12 @@ class RobotModel:
         self.RL_target_cartesian_pos = target_cartesian_pos_EE[3]
 
         # ensure sample time is maintained
-        while ((time.time() - self.previous_time) < self.sampling_time):
+        while ((time.time() - self.previous_time) < self.step_time):
             self.dt = time.time() - self.previous_time
 
         # update the time the WBC ran
         self.previous_time = time.time()
         
-        lower_vel_lim, upper_vel_lim = self.jointVelLimitsArray()
-        lower_pos_lim, upper_pos_lim = self.jointPosLimitsArray()
-        lb = np.concatenate((lower_vel_lim.T, lower_pos_lim), axis=0).reshape(((self.n_velocity_dimensions*2),))
-        ub = np.concatenate((upper_vel_lim.T, upper_pos_lim), axis=0).reshape(((self.n_velocity_dimensions*2),))
-
         #print("lb:", lb)
         #print("ub:", ub)
 
@@ -811,9 +1008,29 @@ class RobotModel:
         A = self.qpA()
         b = self.qpb(target_cartesian_pos_EE, target_cartesian_pos_trunk).reshape((A.shape[0],))
 
-        # find foot constraints
+        # find constraints
         C, Clb, Cub = self.findConstraints()
+        
+        #lb, ub = self.findJointConstraints()
 
+        lb, ub = self.velDamperJointConstraints()
+
+        #print("1 lb", lb)
+        #print("1 ub", ub)
+        """
+        lb, ub = self.jointVelLimitsArray()
+        lb = lb.reshape(self.n_velocity_dimensions,)
+        ub = ub.reshape(self.n_velocity_dimensions,)
+
+        print("2 lb", lb)
+        print("2 ub", ub)
+        
+        
+        lb, ub = self.jointPosLimitsArray()
+        lb = lb.reshape(self.n_velocity_dimensions,)
+        ub = ub.reshape(self.n_velocity_dimensions,)
+        """
+        
         # solve qp
         if self.firstQP == True:
             self.qp = QP(A, b, lb, ub, C, Clb, Cub, n_of_velocity_dimensions=self.n_velocity_dimensions)
@@ -821,7 +1038,7 @@ class RobotModel:
             self.firstQP = False
         else:
             q_vel = self.qp.solveQPHotstart(A, b, lb, ub, C, Clb, Cub)
-
+        print(q_vel)
         # find the new joint angles from the solved joint velocities
         joint_config = self.jointVelocitiestoConfig(q_vel, False)[7:]
 
@@ -836,8 +1053,58 @@ class RobotModel:
         RL_leg = joint_config[6:9]
         RR_leg = joint_config[9:12]
         grip = joint_config[12:]
+        #print(joint_config)
         
         return FL_leg, FR_leg, RL_leg, RR_leg, grip
+
+
+    def staticReachMode(self):
+        """ Set weights """
+        # cartesian task DoF weighting matrix
+        self.trunk_weight = np.identity(6) * 1#50
+        self.FR_weight = np.identity(6) * 1#400
+        self.FL_weight = np.identity(6) * 1#400
+        self.RR_weight = np.identity(6) * 1#400
+        self.RL_weight = np.identity(6) * 1#400
+        self.grip_weight = np.identity(6) * 1#60 * self.arm_reach
+        self.EE_weight = [self.FR_weight, self.FL_weight, self.RR_weight, self.RL_weight, self.grip_weight]
+        self.DoF_W = np.zeros((6*len(self.end_effector_index_list_frame), 6*len(self.end_effector_index_list_frame)))
+        for i in range(len(self.end_effector_index_list_frame)):
+            self.DoF_W[i*6:(i+1)*6, i*6:(i+1)*6] = self.EE_weight[i]
+
+        # task weights
+        self.cart_task_weight_FR = 10
+        self.cart_task_weight_FL = 10
+        self.cart_task_weight_RR = 10
+        self.cart_task_weight_RL = 10
+        self.cart_task_weight_GRIP = 1000
+        self.cart_task_weight_Trunk = 100
+        self.cart_task_weight_EE_list = [self.cart_task_weight_FR, self.cart_task_weight_FL, self.cart_task_weight_RR, self.cart_task_weight_RL, self.cart_task_weight_GRIP]
+        self.joint_task_weight = 0.05
+
+        # Cartesian task proportional gains
+        self.trunk_gain = np.identity(6)* 1 #0.5425
+        self.FL_gain = np.identity(6) * 1
+        self.FL_gain[0,0] = 1
+        self.FL_gain[1,1] = 1
+        self.FL_gain[2,2] = 1
+        self.FR_gain = np.identity(6) * 1
+        self.FR_gain[0,0] =1
+        self.FR_gain[1,1] = 1
+        self.FR_gain[2,2] = 1
+        self.RL_gain = np.identity(6) * 1
+        self.RL_gain[0,0] = 1
+        self.RL_gain[1,1] = 1
+        self.RL_gain[2,2] = 1
+        self.RR_gain = np.identity(6) * 1
+        self.RR_gain[0,0] = 1
+        self.RR_gain[1,1] = 1
+        self.RR_gain[2,2] = 1
+        self.GRIP_gain = np.identity(6) * 1
+        self.GRIP_gain[0,0] = 1
+        self.GRIP_gain[1,1] = 1
+        self.GRIP_gain[2,2] = 1
+        self.EE_gains = [self.FL_gain, self.FR_gain, self.RL_gain, self.RR_gain, self.GRIP_gain]
 
 
     #Debugging functions
