@@ -26,7 +26,7 @@ class QP:
             self.qp = QProblemB(self.no_solutions)
 
         else:
-            self.qp = SQProblem(self.no_solutions, self.C.shape[0])
+            self.qp = SQProblem(self.no_solutions, self.C.shape[1])
         
         # set up options
         options = Options()
