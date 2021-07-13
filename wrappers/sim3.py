@@ -155,11 +155,18 @@ EE_pos_RR = np.array([LeggedRobot.robot_data.oMf[LeggedRobot.end_effector_index_
 EE_pos_RL = np.array([LeggedRobot.robot_data.oMf[LeggedRobot.end_effector_index_list_frame[3]].translation]).T #np.array([[-0.203, 0.148, -0.32]]).T
 EE_pos_GRIP = np.array([LeggedRobot.robot_data.oMf[LeggedRobot.end_effector_index_list_frame[4]].translation]).T #np.array([[0.202, 0., 0.227]]).T #base: 0.252 0. 0.207 reach 0.5 0 -0.15
 """
+"""
 EE_pos_FR = np.array([p.getLinkState(LeggedRobot_bullet, EE_ID_py[0])[4]]).T
 EE_pos_FL = np.array([p.getLinkState(LeggedRobot_bullet, EE_ID_py[1])[4]]).T
 EE_pos_RR = np.array([p.getLinkState(LeggedRobot_bullet, EE_ID_py[2])[4]]).T
 EE_pos_RL = np.array([p.getLinkState(LeggedRobot_bullet, EE_ID_py[3])[4]]).T
-EE_pos_GRIP = np.array([p.getLinkState(LeggedRobot_bullet, EE_ID_py[4])[4]]).T
+"""
+EE_pos_FR = LeggedRobot.prev_EE_pos[0].reshape(3,1)
+EE_pos_FL = LeggedRobot.prev_EE_pos[1].reshape(3,1)
+EE_pos_RR = LeggedRobot.prev_EE_pos[2].reshape(3,1)
+EE_pos_RL = LeggedRobot.prev_EE_pos[3].reshape(3,1)
+EE_pos_GRIP = LeggedRobot.prev_EE_pos[4].reshape(3,1)
+#EE_pos_GRIP = np.array([p.getLinkState(LeggedRobot_bullet, EE_ID_py[4])[4]]).T
 
 
 Trunk_target_pos = np.array([LeggedRobot.robot_data.oMf[LeggedRobot.trunk_frame_index].translation]).T # 0.013 0.002 0.001
@@ -193,7 +200,7 @@ while (1):
         LeggedRobot.chickenheadMode()
     """
     # finding current states
-    current_gripper_pos = np.array([p.getLinkState(LeggedRobot_bullet, EE_ID_py[4])[4]]).reshape(3,)
+    current_gripper_pos = LeggedRobot.prev_EE_pos[4].reshape(3,) #np.array([p.getLinkState(LeggedRobot_bullet, EE_ID_py[4])[4]]).reshape(3,)
     current_trunk_pos = np.array([p.getLinkState(LeggedRobot_bullet, 1)[4]]).reshape(3,)
     
     # defining trajectories
@@ -288,20 +295,21 @@ while (1):
             Trunk_target_pos = np.array([traj2.eval(i)]).T
 
         # fetch the IMU data for potision and orientation in the world frame
-        imu_state = np.array(p.getLinkState(LeggedRobot_bullet, 1)[3])
+        imu_state = np.array(p.getLinkState(LeggedRobot_bullet, 1)[5])
         
         imu_pos = np.array(p.getLinkState(LeggedRobot_bullet, 1)[4])
 
         #imu_state = np.array([0,0,0,1])
         #imu = np.concatenate((imu_pos, imu_state), axis=0)
         #print("py:", p.getEulerFromQuaternion(np.array(p.getLinkState(LeggedRobot_bullet, 1)[5])))
-        #print("pin:", LeggedRobot.Rot2Euler(LeggedRobot.robot_data.oMf[LeggedRobot.trunk_frame_index].rotation).reshape(3,))
+        
         
         base_config = np.concatenate((LeggedRobot.current_joint_config[:3], imu_state), axis=0)
 
         #st = time.time()
         # run the WBC to solve for the new joint configurations
         FL_leg, FR_leg, RL_leg, RR_leg, grip = LeggedRobot.runWBC(base_config, target_cartesian_pos_EE=EE_target_pos, target_cartesian_pos_trunk=Trunk_target_pos)
+        #print("pin:", LeggedRobot.Rot2Euler(LeggedRobot.robot_data.oMf[LeggedRobot.trunk_frame_index].rotation).reshape(3,))
         #print("py:", imu_pos)
         base_offset = np.array([p.getLinkState(LeggedRobot_bullet, 0)[4]])
         #print("py offset:", base_offset)
