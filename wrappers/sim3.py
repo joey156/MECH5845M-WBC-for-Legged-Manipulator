@@ -142,7 +142,7 @@ if robot_index == 2:
 p.setRealTimeSimulation(1)
 
 # select the tasks that are active
-LeggedRobot.setTasks(EE=True, Trunk=True, Joint="MANI")
+LeggedRobot.setTasks(EE=True, Trunk=True, Joint="HYBRID")
 
 # select the constraints that are active
 LeggedRobot.setConstraints(foot=True, CoM=True)
@@ -265,6 +265,9 @@ while (1):
     while (time.time()- t) < 2:
             p.stepSimulation()
             time.sleep(1./500)
+
+    LeggedRobot.initialiseWBC(np.array(p.getLinkState(LeggedRobot_bullet, 1)[5]))
+    
     """
     print(LeggedRobot.robot_data.oMf[LeggedRobot.trunk_frame_index].translation)
     XY_offset = np.array([p.getLinkState(LeggedRobot_bullet, 1)[4][:2]]).reshape(2,)
@@ -295,7 +298,7 @@ while (1):
             Trunk_target_pos = np.array([traj2.eval(i)]).T
 
         # fetch the IMU data for potision and orientation in the world frame
-        imu_state = np.array(p.getLinkState(LeggedRobot_bullet, 1)[5])
+        imu_data = np.array(p.getLinkState(LeggedRobot_bullet, 1)[5])
         
         imu_pos = np.array(p.getLinkState(LeggedRobot_bullet, 1)[4])
 
@@ -304,11 +307,11 @@ while (1):
         #print("py:", p.getEulerFromQuaternion(np.array(p.getLinkState(LeggedRobot_bullet, 1)[5])))
         
         
-        base_config = np.concatenate((LeggedRobot.current_joint_config[:3], imu_state), axis=0)
+        #base_config = np.concatenate((LeggedRobot.current_joint_config[:3], imu_state), axis=0)
 
         #st = time.time()
         # run the WBC to solve for the new joint configurations
-        FL_leg, FR_leg, RL_leg, RR_leg, grip = LeggedRobot.runWBC(base_config, target_cartesian_pos_EE=EE_target_pos, target_cartesian_pos_trunk=Trunk_target_pos)
+        FL_leg, FR_leg, RL_leg, RR_leg, grip = LeggedRobot.runWBC(imu_data, target_cartesian_pos_EE=EE_target_pos, target_cartesian_pos_trunk=Trunk_target_pos)
         #print("pin:", LeggedRobot.Rot2Euler(LeggedRobot.robot_data.oMf[LeggedRobot.trunk_frame_index].rotation).reshape(3,))
         #print("py:", imu_pos)
         base_offset = np.array([p.getLinkState(LeggedRobot_bullet, 0)[4]])

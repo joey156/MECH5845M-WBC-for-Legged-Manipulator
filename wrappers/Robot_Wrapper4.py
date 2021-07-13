@@ -329,9 +329,33 @@ class RobotModel:
         print("Initial state set successfully")
 
 
+    def initialiseWBC(self, imu_data):
+        joint_config = self.current_joint_config[7:]
 
-    def updateState(self, joint_config, base_config=0, feedback=True, running=False):
+        # update robot model with new joint and base configuration
+        self.updateState(joint_config, imu_data, running=True)
+
+        # set default EE and trunk orientation
+        self.default_trunk_ori = R.from_matrix(self.robot_data.oMf[self.trunk_frame_index].rotation)
+        self.default_trunk_ori = self.default_trunk_ori.as_euler('xyz').reshape(3,1)
+        for i in range(len(self.default_EE_ori_list)):
+            self.default_EE_ori_list[i] = R.from_matrix(self.robot_data.oMf[self.end_effector_index_list_frame[i]].rotation)
+            self.default_EE_ori_list[i] = self.default_EE_ori_list[i].as_euler('xyz').reshape(3,1)
+
+        # log previous states
+        self.prev_trunk_ref = np.copy(self.robot_data.oMf[self.trunk_frame_index].translation)
+        self.old_ref_trunk_rot_matrix = np.copy(self.robot_data.oMf[self.trunk_frame_index].rotation)
+        for i in range(len(self.prev_EE_pos)):
+            self.prev_EE_pos[i] = np.copy(self.robot_data.oMf[self.end_effector_index_list_frame[i]].translation)
+            EE_rot = np.copy(self.robot_data.oMf[self.end_effector_index_list_frame[i]].rotation)
+            hip_waist_rot = np.copy(self.robot_data.oMf[self.trunk_frame_index].rotation)
+            self.prev_EE_CoM_rot[i] = np.dot(hip_waist_rot.T, EE_rot)
+
+
+
+    def updateState(self, joint_config, imu_data=0, feedback=True, running=False):
         if feedback == True and running == True:
+            base_config = np.concatenate((self.current_joint_config[:3], imu_data), axis=0)
             config = np.concatenate((base_config, joint_config), axis=0)
 
         else:
@@ -565,27 +589,28 @@ class RobotModel:
 
 
     def footConstraint(self):
-        C = pin.getFrameJacobian(self.robot_model, self.robot_data, self.end_effector_index_list_frame[0], pin.ReferenceFrame.WORLD)#[:2]
+        C = pin.getFrameJacobian(self.robot_model, self.robot_data, self.end_effector_index_list_frame[0], pin.ReferenceFrame.WORLD)[:2]
         fill = np.zeros((3, self.n_velocity_dimensions))
         #C = np.concatenate((C, fill), axis=0)
         #C[0] = 0
         #C[1] = 0
         #C[2] = 0
-        C[3] = 0
-        C[4] = 0
-        C[5] = 0
+        #C[3] = 0
+        #C[4] = 0
+        #C[5] = 0
         
         for i in range(len(self.end_effector_index_list_frame)-2):
-            Jtmp = pin.getFrameJacobian(self.robot_model, self.robot_data, self.end_effector_index_list_frame[i+1], pin.ReferenceFrame.WORLD)#[:2]
+            Jtmp = pin.getFrameJacobian(self.robot_model, self.robot_data, self.end_effector_index_list_frame[i+1], pin.ReferenceFrame.WORLD)[:2]
             #Jtmp[0] = 0
             #Jtmp[1] = 0
             #Jtmp[2] = 0
-            Jtmp[3] = 0
-            Jtmp[4] = 0
-            Jtmp[5] = 0
+            #Jtmp[3] = 0
+            #Jtmp[4] = 0
+            #Jtmp[5] = 0
             #Jtmp = np.concatenate((Jtmp, fill), axis=0)
             C = np.concatenate((C, Jtmp), axis=0)
-        C = np.concatenate((C, np.zeros((6, self.n_velocity_dimensions))), axis=0)
+        #C = np.concatenate((C, np.zeros((6, self.n_velocity_dimensions))), axis=0)
+        #print(C)
         Clb = np.zeros(C.shape[0]).reshape((C.shape[0],))
         Cub = np.zeros(C.shape[0]).reshape((C.shape[0],))
         
@@ -603,6 +628,7 @@ class RobotModel:
         #Clb[2] = 0
         Cub = ((FL_pos - CoM_pos) / self.dt).reshape(C.shape[0])*0.5
         #Cub[2] = 0
+        #print(C)
         return C, Clb, Cub   
 
 
@@ -777,7 +803,15 @@ class RobotModel:
         
         #print("ref_trunk", ref_trunk_vel.T)
         #print("trunk vel", pos_vel.T)
-
+        """
+        if self.initialised == True:
+            #x = fk_EE_rot.as_euler('xyz')
+            #print("current", x)
+            #print("target", target_rot.T)
+            #print("ori_vel", ori_vel.T)
+            print("w_ori_to_CoM", trunk_to_CoM_ori_ref)
+            print("w", w)
+        """
         target_vel = np.concatenate((pos_vel, ori_vel), axis=0)
 
 
@@ -834,9 +868,9 @@ class RobotModel:
         fk_EE_pos = self.EE_frame_pos[i]
         #pos_vel = (np.dot(ref_hip_waist_rot.T, (ref_EE_vel - self.hip_waist_vel_list[i].reshape(3,1))) + np.dot(gain_pos, (np.dot(ref_hip_waist_rot.T, target_pos) - fk_EE_pos.reshape(3,1)))).reshape(3,1)
         #pos_vel = (np.dot(ref_hip_waist_rot.T, (ref_EE_vel))) + (np.dot(gain_pos, ((np.dot(ref_hip_waist_rot.T, target_pos) - np.dot(ref_hip_waist_rot.T, fk_EE_pos.reshape(3,1))).reshape(3,1)/self.dt)))
-        pos_vel = (np.dot(ref_hip_waist_rot.T, (ref_EE_vel))) + (np.dot(gain_pos, ((np.dot(ref_hip_waist_rot.T, target_pos) - fk_EE_pos.reshape(3,1)).reshape(3,1)/self.dt)))
+        #pos_vel = (np.dot(ref_hip_waist_rot.T, (ref_EE_vel))) + (np.dot(gain_pos, ((np.dot(ref_hip_waist_rot.T, target_pos) - fk_EE_pos.reshape(3,1)).reshape(3,1)/self.dt)))
         #pos_vel = (np.dot(ref_hip_waist_rot.T, (ref_EE_vel))) + (np.dot(gain_pos, ((target_pos - fk_EE_pos.reshape(3,1))/self.dt))) # ((np.dot(gain_pos, (target_pos - fk_EE_pos.reshape(3,1)))).reshape(3,1)/self.dt)
-        #pos_vel = ref_EE_vel + (np.dot(gain_pos, ((target_pos - fk_EE_pos.reshape(3,1))/self.dt)))
+        pos_vel = ref_EE_vel + (np.dot(gain_pos, ((target_pos - fk_EE_pos.reshape(3,1))/self.dt)))
 
         #if i == 4 and self.initialised == True:
         #    print(pos_vel)
@@ -884,11 +918,12 @@ class RobotModel:
         # find angular velocity
         w = np.zeros((3,))
         for ii in range(3):
-            w[ii] = -gain_ori[ii,ii] * quat_error[ii]
+            w[ii] = gain_ori[ii,ii] * quat_error[ii]
 
         # find angular velocity of EE to CoM
         w_ori_to_CoM_ref = np.zeros((3,))
         EE_CoM_Rot = np.dot(ref_hip_waist_rot.T, ref_EE_rot)
+        EE_CoM_Rot = ref_EE_rot
         
         #EE_CoM_Rot = ref_EE_rot
         skew = np.dot(((EE_CoM_Rot - self.prev_EE_CoM_rot[i])/self.dt), EE_CoM_Rot.T)
@@ -898,8 +933,17 @@ class RobotModel:
 
         # find overall anglular velocity
         ori_vel = (w_ori_to_CoM_ref + w).reshape(3,1)
-        if self.initialised == True:
+        #ori_vel = w.reshape(3,1)
+        #ori_vel = w_ori_to_CoM_ref.reshape(3,1)
+        """
+        if self.initialised == True and i == 4:
+            #x = fk_EE_rot.as_euler('xyz')
+            #print("current", x)
+            #print("target", target_rot.T)
             print("ori_vel", ori_vel.T)
+            #print("w_ori_to_CoM", w_ori_to_CoM_ref)
+            #print("w", w)
+        """
 
         #print("w_ori_to_CoM_ref", w_ori_to_CoM_ref)
         #print("w", w)
@@ -981,6 +1025,23 @@ class RobotModel:
 
             u = np.array(u).reshape((self.n_velocity_dimensions, 1))
             self.updateState(self.current_joint_config, feedback=False)
+
+        # eliminates high frequency oscillations for the quadruped and reduces singularity risk for the manipulator
+        if self.task_active_Joint == "HYBRID":
+            u = np.delete(self.current_joint_config, 6).reshape((self.n_velocity_dimensions, 1))
+            q = np.copy(self.current_joint_config)
+            deltaq = 0.0002
+            for i in range(len(u)):
+                if i >= self.arm_base_id:
+                    q[i] = q[i] + deltaq
+                    self.updateState(q, feedback=False)
+                    J = pin.getJointJacobian(self.robot_model, self.robot_data, joint_id, pin.ReferenceFrame.LOCAL_WORLD_ALIGNED)
+                    f1 = math.sqrt(np.linalg.det(np.dot(J, J.T)))
+                    q[i] = q[i] - (deltaq * 2)
+                    self.updateState(q, feedback=False)
+                    J = pin.getJointJacobian(self.robot_model, self.robot_data, joint_id, pin.ReferenceFrame.LOCAL_WORLD_ALIGNED)
+                    f2 = math.sqrt(np.linalg.det(np.dot(J, J.T)))
+                    u.append(0.5*(f1-f2)/deltaq)
 
         a = np.ones((self.n_velocity_dimensions, 1))*(1/self.n_velocity_dimensions)
 
@@ -1135,7 +1196,7 @@ class RobotModel:
     def staticReachMode(self):
         """ Set weights """
         # cartesian task DoF weighting matrix
-        self.trunk_weight = np.identity(6) * 1#50
+        self.trunk_weight = np.identity(6) * 0.8#50
         self.FR_weight = np.identity(6) * 1#400
         self.FL_weight = np.identity(6) * 1#400
         self.RR_weight = np.identity(6) * 1#400
@@ -1147,37 +1208,37 @@ class RobotModel:
             self.DoF_W[i*6:(i+1)*6, i*6:(i+1)*6] = self.EE_weight[i]
 
         # task weights
-        self.cart_task_weight_FR = 10
-        self.cart_task_weight_FL = 10
-        self.cart_task_weight_RR = 10
-        self.cart_task_weight_RL = 10
+        self.cart_task_weight_FR = 30
+        self.cart_task_weight_FL = 30
+        self.cart_task_weight_RR = 30
+        self.cart_task_weight_RL = 30
         self.cart_task_weight_GRIP = 20
         self.cart_task_weight_Trunk = 100
         self.cart_task_weight_EE_list = [self.cart_task_weight_FR, self.cart_task_weight_FL, self.cart_task_weight_RR, self.cart_task_weight_RL, self.cart_task_weight_GRIP]
-        self.joint_task_weight = 0.05
+        self.joint_task_weight = 10
 
         # Cartesian task proportional gains
         self.trunk_gain = np.identity(6)* 1 #0.5425
-        self.FL_gain = np.identity(6) * 0.001
+        self.FL_gain = np.identity(6) * 1
         self.FL_gain[0,0] = 1
         self.FL_gain[1,1] = 1
         self.FL_gain[2,2] = 1
-        self.FR_gain = np.identity(6) * 0.001
+        self.FR_gain = np.identity(6) * 1
         self.FR_gain[0,0] = 1
         self.FR_gain[1,1] = 1
         self.FR_gain[2,2] = 1
-        self.RL_gain = np.identity(6) * 0.001
+        self.RL_gain = np.identity(6) * 1
         self.RL_gain[0,0] = 1
         self.RL_gain[1,1] = 1
         self.RL_gain[2,2] = 1
-        self.RR_gain = np.identity(6) * 0.001
+        self.RR_gain = np.identity(6) * 1
         self.RR_gain[0,0] = 1
         self.RR_gain[1,1] = 1
         self.RR_gain[2,2] = 1
-        self.GRIP_gain = np.identity(6) * 1
-        self.GRIP_gain[0,0] = 1
-        self.GRIP_gain[1,1] = 1
-        self.GRIP_gain[2,2] = 1
+        self.GRIP_gain = np.identity(6) * 8
+        self.GRIP_gain[0,0] = 5
+        self.GRIP_gain[1,1] = 5
+        self.GRIP_gain[2,2] = 5
         self.EE_gains = [self.FL_gain, self.FR_gain, self.RL_gain, self.RR_gain, self.GRIP_gain]
 
 
