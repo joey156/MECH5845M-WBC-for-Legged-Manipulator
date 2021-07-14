@@ -145,7 +145,7 @@ p.setRealTimeSimulation(1)
 LeggedRobot.setTasks(EE=True, Trunk=True, Joint="HYBRID")
 
 # select the constraints that are active
-LeggedRobot.setConstraints(foot=True, CoM=True)
+LeggedRobot.setConstraints(foot=True, CoM=True, grip=False, trunk=True)
 
 # setting objectives#
 """
@@ -206,7 +206,7 @@ while (1):
     # defining trajectories
     a1_wx200_trunk_milestones = [current_trunk_pos.tolist(), [0, 0, 0.15], [0, 0, 0.48], current_trunk_pos.tolist(), [0, -0.15, current_trunk_pos.tolist()[2]], [0, 0.15, current_trunk_pos.tolist()[2]], current_trunk_pos.tolist(), [-0.1, 0, current_trunk_pos.tolist()[2]], [0.08, 0, current_trunk_pos.tolist()[2]], current_trunk_pos.tolist()]
     #a1_wx200_milestones = [current_gripper_pos.tolist(), [0.4, 0., 0.58], [0.4, -0.25, 0.58], [0.3, -0.35, 0.58], [0, -0.35, 0.58], [-0.1, -0.46, 0.48], [-0.1, -0.35, 0.43], [0, -0.35, 0.29], [0.3, -0.35, 0.29], [0.4, -0.2, 0.29], [0.4, 0.2, 0.29], [0.3, 0.40, 0.29], [0, 0.35, 0.29], [-0.1, 0.35, 0.43], [-0.1, 0.35, 0.48], [0, 0.35, 0.58], [0.3, 0.35, 0.58], [0.4, 0.2, 0.58], [0.4, 0, 0.58]]
-    a1_wx200_milestones = [current_gripper_pos.tolist(), [0.402, 0., 0.724], [0.402, 0.25, 0.724], [0.3, 0.35, 0.724], [0, 0.35, 0.724], [-0.1, 0.35, 0.48], [-0.1, 0.35, 0.43], [0, 0.37, 0.24], [0.3, 0.37, 0.24], [0.402, 0.2, 0.24], [0.402, -0.2, 0.24], [0.3, -0.37, 0.24], [0, -0.37, 0.24], [-0.1, -0.35, 0.43], [-0.1, -0.35, 0.48], [0, -0.35, 0.725], [0.3, -0.35, 0.725], [0.402, -0.2, 0.725], [0.402, 0, 0.725]]
+    a1_wx200_milestones = [current_gripper_pos.tolist(), [0.402, 0., 0.724], [0.402, 0.25, 0.724], [0.3, 0.35, 0.724], [0, 0.35, 0.724], [-0.1, 0.35, 0.48], [-0.1, 0.35, 0.43], [0, 0.35, 0.24], [0.3, 0.35, 0.24], [0.402, 0.2, 0.24], [0.402, -0.2, 0.24], [0.3, -0.35, 0.24], [0, -0.35, 0.24], [-0.1, -0.35, 0.43], [-0.1, -0.35, 0.48], [0, -0.35, 0.725], [0.3, -0.35, 0.725], [0.402, -0.2, 0.725], [0.402, 0, 0.725]]
     a1_px100_milestones = [current_gripper_pos.tolist(), [0.28, 0., 0.55], [0.28, -0.1, 0.55], [0.22, -0.2, 0.55], [0.07, -0.2, 0.55], [0., -0.2, 0.52], [0., -0.2, 0.47], [0.07, -0.2, 0.44], [0.22, -0.20, 0.44],[0.32, -0.05, 0.44], [0.32, 0.1, 0.44], [0.22, 0.2, 0.44], [0.07, 0.2, 0.44], [0, 0.2, 0.47], [0, 0.2, 0.52], [0.07, 0.2, 0.55], [0.22, 0.2, 0.55], [0.28, 0.1, 0.55], [0.28, 0, 0.55]]
     laikago_vx300_milestones = [current_gripper_pos.tolist(), [0.4, 0., 0.80], [0.4, 0.2, 0.80], [0.25, 0.38, 0.80], [-0.1, 0.38, 0.80], [-0.3, 0.38, 0.75], [-0.3, 0.38, 0.55], [-0.1, 0.38, 0.5], [0.3, 0.38, 0.5], [0.4, 0.2, 0.5], [0.4, -0.25, 0.5], [0.3, -0.38, 0.5], [-0.1, -0.38, 0.5], [-0.3, -0.38, 0.55], [-0.3, -0.38, 0.75], [-0.1, -0.38, 0.80], [0.3, -0.38, 0.80], [0.4, -0.2, 0.80], [0.4, 0, 0.80]]
 
@@ -219,8 +219,8 @@ while (1):
 
     # create trajectory
     traj = trajectory.Trajectory(milestones=milestones)
-    traj2 = trajectory.HermiteTrajectory()
-    traj2.makeSpline(traj)
+    traj2 = traj #trajectory.HermiteTrajectory()
+    #traj2.makeSpline(traj)
     if sim_id == 0:
         interval = 0.002
     if sim_id == 1:

@@ -100,6 +100,8 @@ class RobotModel:
         # identify which constraints are active
         self.const_active_foot = False
         self.const_active_CoM = False
+        self.const_active_grip = False
+        self.const_active_trunk = False
 
         # step time parameters
         self.previous_time = 0
@@ -166,9 +168,12 @@ class RobotModel:
         self.task_active_Joint = Joint
 
 
-    def setConstraints(self, foot=False, CoM=False):
+    def setConstraints(self, foot=False, CoM=False, grip=False, trunk=False):
         self.const_active_foot = foot
         self.const_active_CoM = CoM
+        self.const_active_grip = grip
+        self.const_active_trunk = trunk
+        
 
 
     def setInitialState(self):
@@ -351,6 +356,13 @@ class RobotModel:
             hip_waist_rot = np.copy(self.robot_data.oMf[self.trunk_frame_index].rotation)
             self.prev_EE_CoM_rot[i] = np.dot(hip_waist_rot.T, EE_rot)
 
+        # log initial state of the trunk
+        self.initial_trunk_pos = np.copy(self.robot_data.oMf[self.trunk_frame_index].translation)
+        print("initial pos", self.initial_trunk_pos)
+        self.initial_trunk_ori = np.copy(self.robot_data.oMf[self.trunk_frame_index].rotation)
+        ori = R.from_matrix(self.initial_trunk_ori)
+        self.initial_trunk_ori_euler = ori.as_euler('xyz').reshape(3,1)
+
 
 
     def updateState(self, joint_config, imu_data=0, feedback=True, running=False):
@@ -362,7 +374,8 @@ class RobotModel:
             config = joint_config
 
         # update robot state
-        #print("config", joint_config)
+        if self.initialised == True:
+            print("config", config)
         pin.forwardKinematics(self.robot_model, self.robot_data, config)
         self.previous_joint_config = self.current_joint_config
         self.current_joint_config = config
@@ -610,7 +623,7 @@ class RobotModel:
             #Jtmp = np.concatenate((Jtmp, fill), axis=0)
             C = np.concatenate((C, Jtmp), axis=0)
         #C = np.concatenate((C, np.zeros((6, self.n_velocity_dimensions))), axis=0)
-        #print(C)
+        #print(C.shape)
         Clb = np.zeros(C.shape[0]).reshape((C.shape[0],))
         Cub = np.zeros(C.shape[0]).reshape((C.shape[0],))
         
@@ -629,7 +642,62 @@ class RobotModel:
         Cub = ((FL_pos - CoM_pos) / self.dt).reshape(C.shape[0])*0.5
         #Cub[2] = 0
         #print(C)
-        return C, Clb, Cub   
+        return C, Clb, Cub
+
+
+    def gripperOriConstraint(self):
+        C = pin.getFrameJacobian(self.robot_model, self.robot_data, self.end_effector_index_list_frame[4], pin.ReferenceFrame.WORLD)[3:]
+        C[1] = 0
+        C[2] = 0
+        Clb = np.zeros(C.shape[0]).reshape((C.shape[0],))
+        Cub = np.zeros(C.shape[0]).reshape((C.shape[0],))
+        #print(C)
+        return C, Clb, Cub
+
+
+    def trunkConstraint(self):
+        # find trunk jacobian
+        C = pin.getFrameJacobian(self.robot_model, self.robot_data, self.end_effector_index_list_frame[4], pin.ReferenceFrame.WORLD)[2:]
+
+        # find the current state of the trunk for z, roll, pitch and yaw
+        trunk_pos = self.trunk_frame_pos[2:]
+        trunk_ori = R.from_matrix(np.copy(self.robot_data.oMf[self.trunk_frame_index].rotation))
+        trunk_ori_euler = trunk_ori.as_euler('xyz')
+        current_trunk_state = np.concatenate((trunk_pos, trunk_ori_euler), axis=0).reshape(4,)
+
+        # define the max desired deviation from the initial configuration
+        z_var = self.initial_trunk_pos[2] * 0.025
+        roll_var = self.initial_trunk_ori_euler[0] * 0.025
+        pitch_var = self.initial_trunk_ori_euler[1] * 0.025
+        yaw_var = self.initial_trunk_ori_euler[2] * 0.025
+        lb = np.zeros(C.shape[0]).reshape((C.shape[0],))
+        ub = np.zeros(C.shape[0]).reshape((C.shape[0],))
+        lb[0] = self.initial_trunk_pos[2] - z_var
+        ub[0] = self.initial_trunk_pos[2] + z_var
+        lb[1] = self.initial_trunk_ori_euler[0] - roll_var
+        ub[1] = self.initial_trunk_ori_euler[0] + roll_var
+        lb[2] = self.initial_trunk_ori_euler[1] - pitch_var
+        ub[2] = self.initial_trunk_ori_euler[1] + pitch_var
+        lb[3] = self.initial_trunk_ori_euler[2] - yaw_var
+        ub[3] = self.initial_trunk_ori_euler[2] + yaw_var
+        
+        # find the lower and upper bounds
+        Clb = ((lb - current_trunk_state) / self.dt).reshape(C.shape[0]) * 0.001
+        Cub = ((ub - current_trunk_state) / self.dt).reshape(C.shape[0]) * 0.001
+
+        # ensure bounds do not conflict
+        """
+        for i in range(len(Clb)):
+            if Clb[i] > Cub[i]:
+                tmp = Clb[i]
+                Clb[i] = Cub[i]
+                Cub[i] = tmp
+        """
+        print(self.initial_trunk_pos)
+        print("Clb", Clb)
+        print("Cub", Cub)
+        
+        return C, Clb, Cub
 
 
     def findConstraints(self):
@@ -641,6 +709,7 @@ class RobotModel:
             constraints_dict["C"].append(C)
             constraints_dict["Clb"].append(Clb)
             constraints_dict["Cub"].append(Cub)
+            #print(C.shape)
             n_of_constraints = n_of_constraints + 1
 
         if self.const_active_CoM == True:
@@ -648,6 +717,23 @@ class RobotModel:
             constraints_dict["C"].append(C)
             constraints_dict["Clb"].append(Clb)
             constraints_dict["Cub"].append(Cub)
+            #print(C.shape)
+            n_of_constraints = n_of_constraints + 1
+
+        if self.const_active_grip == True:
+            C, Clb, Cub = self.gripperOriConstraint()
+            constraints_dict["C"].append(C)
+            constraints_dict["Clb"].append(Clb)
+            constraints_dict["Cub"].append(Cub)
+            #print(C.shape)
+            n_of_constraints = n_of_constraints + 1
+
+        if self.const_active_trunk == True:
+            C, Clb, Cub = self.trunkConstraint()
+            constraints_dict["C"].append(C)
+            constraints_dict["Clb"].append(Clb)
+            constraints_dict["Cub"].append(Cub)
+            #print(C.shape)
             n_of_constraints = n_of_constraints + 1
 
         if n_of_constraints > 0:
@@ -659,6 +745,8 @@ class RobotModel:
             C = np.concatenate((C, constraints_dict["C"][i+1]), axis=0)
             Clb = np.concatenate((Clb, constraints_dict["Clb"][i+1]), axis=0)
             Cub = np.concatenate((Cub, constraints_dict["Cub"][i+1]), axis=0)
+
+        #print(C.shape)
             
         return C.T, Clb, Cub
 
@@ -782,7 +870,7 @@ class RobotModel:
         # find angular velocity
         w = np.zeros((3,))
         for ii in range(3):
-            w[ii] = -gain_ori[ii,ii] * quat_error[ii]
+            w[ii] = gain_ori[ii,ii] * quat_error[ii]
 
         skew = np.dot(((ref_trunk_rot_matrix - self.old_ref_trunk_rot_matrix)/self.dt), ref_trunk_rot_matrix)
         trunk_to_CoM_ori_ref = np.zeros((3,))
@@ -925,7 +1013,6 @@ class RobotModel:
         EE_CoM_Rot = np.dot(ref_hip_waist_rot.T, ref_EE_rot)
         EE_CoM_Rot = ref_EE_rot
         
-        #EE_CoM_Rot = ref_EE_rot
         skew = np.dot(((EE_CoM_Rot - self.prev_EE_CoM_rot[i])/self.dt), EE_CoM_Rot.T)
         w_ori_to_CoM_ref[0] = skew[2,1]
         w_ori_to_CoM_ref[1] = skew[0,2]
@@ -934,12 +1021,12 @@ class RobotModel:
         # find overall anglular velocity
         ori_vel = (w_ori_to_CoM_ref + w).reshape(3,1)
         #ori_vel = w.reshape(3,1)
-        #ori_vel = w_ori_to_CoM_ref.reshape(3,1)
+        ori_vel = w_ori_to_CoM_ref.reshape(3,1)
         """
-        if self.initialised == True and i == 4:
-            #x = fk_EE_rot.as_euler('xyz')
-            #print("current", x)
-            #print("target", target_rot.T)
+        if self.initialised == True:
+            x = fk_EE_rot.as_euler('xyz')
+            print("current", x)
+            print("target", target_rot.T)
             print("ori_vel", ori_vel.T)
             #print("w_ori_to_CoM", w_ori_to_CoM_ref)
             #print("w", w)
@@ -947,7 +1034,10 @@ class RobotModel:
 
         #print("w_ori_to_CoM_ref", w_ori_to_CoM_ref)
         #print("w", w)
-        
+        """
+        if self.initialised == True and i == 4:
+            ori_vel = np.array([0,0,0]).reshape(3,1)
+        """
         # store previouse values
         self.prev_EE_pos[i] = target_pos
         self.prev_EE_CoM_rot[i] = EE_CoM_Rot
@@ -1196,49 +1286,52 @@ class RobotModel:
     def staticReachMode(self):
         """ Set weights """
         # cartesian task DoF weighting matrix
-        self.trunk_weight = np.identity(6) * 0.8#50
+        self.trunk_weight = np.identity(6) * 1#50
         self.FR_weight = np.identity(6) * 1#400
         self.FL_weight = np.identity(6) * 1#400
         self.RR_weight = np.identity(6) * 1#400
         self.RL_weight = np.identity(6) * 1#400
-        self.grip_weight = np.identity(6) * 1#60 * self.arm_reach
+        self.grip_weight = np.identity(6) * 0.5#60 * self.arm_reach
         self.EE_weight = [self.FR_weight, self.FL_weight, self.RR_weight, self.RL_weight, self.grip_weight]
         self.DoF_W = np.zeros((6*len(self.end_effector_index_list_frame), 6*len(self.end_effector_index_list_frame)))
         for i in range(len(self.end_effector_index_list_frame)):
             self.DoF_W[i*6:(i+1)*6, i*6:(i+1)*6] = self.EE_weight[i]
 
         # task weights
-        self.cart_task_weight_FR = 30
-        self.cart_task_weight_FL = 30
-        self.cart_task_weight_RR = 30
-        self.cart_task_weight_RL = 30
-        self.cart_task_weight_GRIP = 20
-        self.cart_task_weight_Trunk = 100
+        self.cart_task_weight_FR = 6
+        self.cart_task_weight_FL = 6
+        self.cart_task_weight_RR = 6
+        self.cart_task_weight_RL = 6
+        self.cart_task_weight_GRIP =9
+        self.cart_task_weight_Trunk = 6
         self.cart_task_weight_EE_list = [self.cart_task_weight_FR, self.cart_task_weight_FL, self.cart_task_weight_RR, self.cart_task_weight_RL, self.cart_task_weight_GRIP]
-        self.joint_task_weight = 10
+        self.joint_task_weight = 6
 
         # Cartesian task proportional gains
-        self.trunk_gain = np.identity(6)* 1 #0.5425
-        self.FL_gain = np.identity(6) * 1
-        self.FL_gain[0,0] = 1
-        self.FL_gain[1,1] = 1
-        self.FL_gain[2,2] = 1
-        self.FR_gain = np.identity(6) * 1
-        self.FR_gain[0,0] = 1
-        self.FR_gain[1,1] = 1
-        self.FR_gain[2,2] = 1
-        self.RL_gain = np.identity(6) * 1
-        self.RL_gain[0,0] = 1
-        self.RL_gain[1,1] = 1
-        self.RL_gain[2,2] = 1
-        self.RR_gain = np.identity(6) * 1
-        self.RR_gain[0,0] = 1
-        self.RR_gain[1,1] = 1
-        self.RR_gain[2,2] = 1
-        self.GRIP_gain = np.identity(6) * 8
-        self.GRIP_gain[0,0] = 5
-        self.GRIP_gain[1,1] = 5
-        self.GRIP_gain[2,2] = 5
+        self.trunk_gain = np.identity(6)* 0.8#0.5425
+        self.trunk_gain[0,0] = 0.8
+        self.trunk_gain[1,1] = 0.8
+        self.trunk_gain[2,2] = 0.8
+        self.FL_gain = np.identity(6) * 0.8
+        self.FL_gain[0,0] = 0.8
+        self.FL_gain[1,1] = 0.8
+        self.FL_gain[2,2] = 0.8
+        self.FR_gain = np.identity(6) * 0.8
+        self.FR_gain[0,0] = 0.8
+        self.FR_gain[1,1] = 0.8
+        self.FR_gain[2,2] = 0.8
+        self.RL_gain = np.identity(6) * 0.8
+        self.RL_gain[0,0] = 0.8
+        self.RL_gain[1,1] = 0.8
+        self.RL_gain[2,2] = 0.8
+        self.RR_gain = np.identity(6) * 0.8
+        self.RR_gain[0,0] = 0.8
+        self.RR_gain[1,1] = 0.8
+        self.RR_gain[2,2] = 0.8
+        self.GRIP_gain = np.identity(6) * 0.5
+        self.GRIP_gain[0,0] = 0.5
+        self.GRIP_gain[1,1] = 0.5
+        self.GRIP_gain[2,2] = 0.5
         self.EE_gains = [self.FL_gain, self.FR_gain, self.RL_gain, self.RR_gain, self.GRIP_gain]
 
 
