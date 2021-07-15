@@ -87,7 +87,7 @@ joints_py_current = []
 EE_ID_py = [0, 0, 0, 0, 0]
 
 # Enables a trackbar to select the max joint force
-maxForceId = p.addUserDebugParameter("maxForce",0,100,100)
+maxForceId = p.addUserDebugParameter("maxForce",0,100,50)
 
 # This loop sets the linear and angular damping to 0 and adds all actuated joints to jointIds
 for i in range(len(EE_ID_py)):
@@ -142,10 +142,10 @@ if robot_index == 2:
 p.setRealTimeSimulation(1)
 
 # select the tasks that are active
-LeggedRobot.setTasks(EE=True, Trunk=True, Joint="HYBRID")
+LeggedRobot.setTasks(Trunk=False, FR=False, FL=False, RR=False, RL=False, Grip=True, Joint="HYBRID")
 
 # select the constraints that are active
-LeggedRobot.setConstraints(foot=True, CoM=True, grip=False, trunk=True)
+LeggedRobot.setConstraints(CoM=False, Trunk=True, FR=True, FL=True, RR=True, RL=True, Grip=False)
 
 # setting objectives#
 """
